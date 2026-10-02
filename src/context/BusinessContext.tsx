@@ -460,6 +460,60 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setActiveBusinessId(newBizId);
     setActiveBranchId(newBranchId);
 
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('businesses').insert({
+          id: newBusiness.id,
+          name: newBusiness.name,
+          slug: newBusiness.slug,
+          email: newBusiness.email,
+          currency: newBusiness.currency,
+          currency_symbol: newBusiness.currency_symbol,
+          timezone: newBusiness.timezone,
+          status: newBusiness.status,
+          subscription_plan: newBusiness.subscription_plan,
+        });
+
+        await supabase.from('branches').insert({
+          id: newBranch.id,
+          business_id: newBranch.business_id,
+          name: newBranch.name,
+          slug: newBranch.slug,
+          tax_rate_percent: newBranch.tax_rate_percent,
+          service_charge_percent: newBranch.service_charge_percent,
+          opening_time: newBranch.opening_time,
+          closing_time: newBranch.closing_time,
+          is_active: newBranch.is_active,
+        });
+
+        for (const tbl of newTables) {
+          await supabase.from('tables').insert({
+            id: tbl.id,
+            business_id: tbl.business_id,
+            branch_id: tbl.branch_id,
+            table_number: tbl.table_number,
+            capacity: tbl.capacity,
+            seating_area: tbl.seating_area,
+            status: tbl.status,
+            is_active: tbl.is_active,
+          });
+          if (tbl.qr_code) {
+            await supabase.from('qr_codes').insert({
+              id: tbl.qr_code.id,
+              business_id: tbl.qr_code.business_id,
+              branch_id: tbl.qr_code.branch_id,
+              table_id: tbl.id,
+              code_identifier: tbl.qr_code.code_identifier,
+              qr_url: tbl.qr_code.qr_url,
+              is_active: true,
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Supabase onboarding sync notice:', err);
+      }
+    }
+
     return newBusiness;
   };
 
