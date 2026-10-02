@@ -246,10 +246,16 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           .eq('branch_id', activeBranch.id);
 
         if (isMounted && tblData && tblData.length > 0) {
-          const formattedTables: RestaurantTable[] = tblData.map((t: any) => ({
-            ...t,
-            qr_code: Array.isArray(t.qr_code) ? t.qr_code[0] : t.qr_code,
-          }));
+          const formattedTables: RestaurantTable[] = tblData.map((t: any) => {
+            const rawQr = Array.isArray(t.qr_code) ? t.qr_code[0] : t.qr_code;
+            return {
+              ...t,
+              qr_code: rawQr ? {
+                ...rawQr,
+                qr_url: `${window.location.origin}/menu/${encodeURIComponent(rawQr.code_identifier || t.table_number)}`,
+              } : undefined,
+            };
+          });
           setTables((prev) => {
             const others = prev.filter((tb) => tb.branch_id !== activeBranch.id);
             return [...others, ...formattedTables];

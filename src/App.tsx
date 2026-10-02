@@ -1,4 +1,4 @@
-import React, { useState, Suspense, lazy } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { BusinessProvider } from './context/BusinessContext';
 import { ToastProvider } from './components/ui/Toast';
@@ -36,16 +36,96 @@ const PageLoadingFallback: React.FC = () => (
   </div>
 );
 
+function parseMenuRoute(): { isMenu: boolean; tableCode: string | null } {
+  if (typeof window === 'undefined') return { isMenu: false, tableCode: null };
+
+  const path = window.location.pathname;
+  const search = new URLSearchParams(window.location.search);
+  const hash = window.location.hash;
+
+  // 1. Direct path /menu or /menu/:code
+  const pathMatch = path.match(/^\/menu(?:\/([^\/?#]+))?/i);
+  if (pathMatch) {
+    return {
+      isMenu: true,
+      tableCode: pathMatch[1] ? decodeURIComponent(pathMatch[1]) : search.get('table'),
+    };
+  }
+
+  // 2. Query param ?menu=true or ?table=...
+  if (search.has('menu') || search.has('table')) {
+    return {
+      isMenu: true,
+      tableCode: search.get('table'),
+    };
+  }
+
+  // 3. Hash routing fallback #/menu or #/menu/:code
+  const hashMatch = hash.match(/^#\/?menu(?:\/([^\/?#]+))?/i);
+  if (hashMatch) {
+    return {
+      isMenu: true,
+      tableCode: hashMatch[1] ? decodeURIComponent(hashMatch[1]) : null,
+    };
+  }
+
+  return { isMenu: false, tableCode: null };
+}
+
 const MainApp: React.FC = () => {
   const { isAuthenticated } = useAuth();
+  const [routeInfo, setRouteInfo] = useState<{ isMenu: boolean; tableCode: string | null }>(() => parseMenuRoute());
   const [currentPage, setCurrentPage] = useState<NavigationPage>('dashboard');
   const [authModalOpen, setAuthModalOpen] = useState(false);
+
+  // Listen to browser forward/backward buttons or pushState
+  useEffect(() => {
+    const handlePopState = () => {
+      setRouteInfo(parseMenuRoute());
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // When visiting /menu or scanning table QR, render ONLY the standalone Customer Menu
+  // Do NOT render admin DashboardLayout, sidebar, topbar, or demo preview banners!
+  if (routeInfo.isMenu) {
+    return (
+      <>
+        <Suspense fallback={<PageLoadingFallback />}>
+          <CustomerOrderingPage
+            scannedTableCode={routeInfo.tableCode}
+            isStandalone={true}
+            onExitToAdmin={() => {
+              window.history.pushState({}, '', '/');
+              setRouteInfo({ isMenu: false, tableCode: null });
+            }}
+          />
+        </Suspense>
+
+        {/* Global Auth Modal for staff portal login if accessed */}
+        <AuthModal
+          isOpen={authModalOpen}
+          onClose={() => setAuthModalOpen(false)}
+        />
+      </>
+    );
+  }
+
+  const handleNavigate = (page: NavigationPage) => {
+    if (page === 'customer-ordering') {
+      window.history.pushState({}, '', '/menu');
+      setRouteInfo({ isMenu: true, tableCode: null });
+    } else {
+      setCurrentPage(page);
+    }
+  };
 
   return (
     <>
       <DashboardLayout
         currentPage={currentPage}
-        onNavigate={(page) => setCurrentPage(page)}
+        onNavigate={handleNavigate}
       >
         {/* Guest Preview Notification Banner if logged out */}
         {!isAuthenticated && (
@@ -73,12 +153,12 @@ const MainApp: React.FC = () => {
         {/* View Router with Suspense lazy loading */}
         <Suspense fallback={<PageLoadingFallback />}>
           {currentPage === 'dashboard' && (
-            <DashboardPage onNavigate={(page) => setCurrentPage(page)} />
+            <DashboardPage onNavigate={handleNavigate} />
           )}
           {currentPage === 'orders' && <OrdersPage />}
           {currentPage === 'kitchen' && <KitchenDisplayPage />}
           {currentPage === 'tables' && (
-            <TablesPage onNavigate={(page) => setCurrentPage(page)} />
+            <TablesPage onNavigate={handleNavigate} />
           )}
           {currentPage === 'menu' && <MenuPage />}
           {currentPage === 'customers' && <CustomersPage />}
@@ -90,7 +170,12 @@ const MainApp: React.FC = () => {
           {currentPage === 'analytics' && <AnalyticsPage />}
           {currentPage === 'settings' && <SettingsPage />}
           {currentPage === 'super-admin' && <SuperAdminPage />}
-          {currentPage === 'customer-ordering' && <CustomerOrderingPage />}
+          {currentPage === 'customer-ordering' && (
+            <CustomerOrderingPage
+              isStandalone={false}
+              onExitToAdmin={() => setCurrentPage('dashboard')}
+            />
+          )}
         </Suspense>
       </DashboardLayout>
 

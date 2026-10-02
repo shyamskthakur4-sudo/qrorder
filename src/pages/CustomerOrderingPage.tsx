@@ -40,7 +40,17 @@ interface CartItem {
   totalPrice: number;
 }
 
-export const CustomerOrderingPage: React.FC = () => {
+export interface CustomerOrderingPageProps {
+  scannedTableCode?: string | null;
+  isStandalone?: boolean;
+  onExitToAdmin?: () => void;
+}
+
+export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
+  scannedTableCode,
+  isStandalone = false,
+  onExitToAdmin,
+}) => {
   const {
     activeBusiness,
     activeBranch,
@@ -111,8 +121,45 @@ export const CustomerOrderingPage: React.FC = () => {
     };
   }, [activeBusiness.id]);
 
-  // Selected table simulation (default to first active table)
-  const [selectedTableId, setSelectedTableId] = useState<string>(tables[0]?.id || '');
+  // Selected table - automatically matched from scanned QR code or URL param
+  const [selectedTableId, setSelectedTableId] = useState<string>(() => tables[0]?.id || '');
+
+  useEffect(() => {
+    if (tables.length === 0) return;
+
+    // Check code from prop or URL
+    let code = scannedTableCode;
+    if (!code && typeof window !== 'undefined') {
+      const search = new URLSearchParams(window.location.search);
+      code = search.get('table');
+      if (!code) {
+        const match = window.location.pathname.match(/^\/menu(?:\/([^\/?#]+))?/i);
+        if (match && match[1]) code = decodeURIComponent(match[1]);
+      }
+    }
+
+    if (code) {
+      const clean = code.trim().toLowerCase();
+      const matched = tables.find((t) => {
+        if (t.qr_code?.code_identifier && t.qr_code.code_identifier.toLowerCase() === clean) return true;
+        if (t.table_number.toLowerCase() === clean) return true;
+        if (t.id.toLowerCase() === clean) return true;
+        if (t.table_number.toLowerCase() === clean.replace(/^t-?/i, '')) return true;
+        if (`t-${t.table_number.toLowerCase()}` === clean) return true;
+        return false;
+      });
+
+      if (matched) {
+        setSelectedTableId(matched.id);
+        return;
+      }
+    }
+
+    if (!tables.some((t) => t.id === selectedTableId) && tables[0]) {
+      setSelectedTableId(tables[0].id);
+    }
+  }, [scannedTableCode, tables, selectedTableId]);
+
   const activeTable = tables.find((t) => t.id === selectedTableId) || tables[0];
 
   // Menu filtering
@@ -133,8 +180,18 @@ export const CustomerOrderingPage: React.FC = () => {
 
   // Checkout modal
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
-  const [custName, setCustName] = useState('Rahul Verma');
-  const [custPhone, setCustPhone] = useState('+91 98888 77665');
+  const [custName, setCustName] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('cafeos_cust_name') || '';
+    }
+    return '';
+  });
+  const [custPhone, setCustPhone] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('cafeos_cust_phone') || '';
+    }
+    return '';
+  });
   const [paymentMethod, setPaymentMethod] = useState<'UPI' | 'CARD' | 'CASH'>('UPI');
   const [couponCode, setCouponCode] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discount: number } | null>(null);
@@ -287,6 +344,13 @@ export const CustomerOrderingPage: React.FC = () => {
       } catch {}
     }
 
+    if (custName.trim() && typeof window !== 'undefined') {
+      localStorage.setItem('cafeos_cust_name', custName.trim());
+    }
+    if (custPhone.trim() && typeof window !== 'undefined') {
+      localStorage.setItem('cafeos_cust_phone', custPhone.trim());
+    }
+
     setPlacedOrder(newOrder);
     setCart([]);
     setIsCartOpen(false);
@@ -295,55 +359,61 @@ export const CustomerOrderingPage: React.FC = () => {
   };
 
   return (
-    <div className="max-w-md mx-auto bg-slate-950 border border-slate-800 rounded-[36px] shadow-2xl overflow-hidden min-h-[840px] flex flex-col relative">
-      {/* Smartphone Notch / Status simulation banner */}
-      <div className="bg-slate-900/90 px-6 py-2.5 flex items-center justify-between text-[11px] text-slate-400 border-b border-slate-800">
-        <span className="flex items-center gap-1 font-semibold text-slate-300">
-          <Smartphone className="w-3.5 h-3.5 text-amber-400" />
-          Customer QR Mode (No App Needed)
-        </span>
-        {/* Table Selector for simulation */}
-        <select
-          value={selectedTableId}
-          onChange={(e) => setSelectedTableId(e.target.value)}
-          className="bg-slate-800 text-amber-300 font-bold rounded-lg px-2 py-0.5 text-[10px] border border-amber-500/30 cursor-pointer"
-        >
-          {tables.map((t) => (
-            <option key={t.id} value={t.id}>
-              Table {t.table_number} ({t.seating_area})
-            </option>
-          ))}
-        </select>
-      </div>
+    <div className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col ${isStandalone ? 'w-full' : 'max-w-md mx-auto border border-slate-800 rounded-[36px] shadow-2xl overflow-hidden my-4'}`}>
+      <div className={`w-full ${isStandalone ? 'max-w-lg mx-auto sm:border-x sm:border-slate-800/80 min-h-screen flex flex-col relative bg-slate-950 shadow-2xl' : 'flex flex-col relative'}`}>
+        {/* Smartphone Notch / Status simulation banner (only if in preview inside admin) */}
+        {!isStandalone && (
+          <div className="bg-slate-900/90 px-6 py-2.5 flex items-center justify-between text-[11px] text-slate-400 border-b border-slate-800">
+            <span className="flex items-center gap-1 font-semibold text-slate-300">
+              <Smartphone className="w-3.5 h-3.5 text-amber-400" />
+              Customer QR Preview
+            </span>
+            {/* Table Selector for simulation */}
+            <select
+              value={selectedTableId}
+              onChange={(e) => setSelectedTableId(e.target.value)}
+              className="bg-slate-800 text-amber-300 font-bold rounded-lg px-2 py-0.5 text-[10px] border border-amber-500/30 cursor-pointer"
+            >
+              {tables.map((t) => (
+                <option key={t.id} value={t.id}>
+                  Table {t.table_number} ({t.seating_area})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
-      {/* Brand Header */}
-      <div className="relative p-5 bg-gradient-to-b from-amber-950/40 via-slate-900 to-slate-950 border-b border-slate-800/80">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {activeBusiness.logo_url ? (
-              <img
-                src={activeBusiness.logo_url}
-                alt={activeBusiness.name}
-                className="w-12 h-12 rounded-2xl object-cover border border-amber-500/40 shadow-lg shadow-amber-500/30 shrink-0"
-              />
-            ) : (
-              <div className="w-12 h-12 rounded-2xl bg-amber-500 flex items-center justify-center font-black text-slate-950 text-xl shadow-lg shadow-amber-500/30 shrink-0">
-                {activeBusiness.name ? activeBusiness.name.charAt(0).toUpperCase() : 'C'}
+        {/* Brand Header */}
+        <div className="relative p-5 bg-gradient-to-b from-amber-950/40 via-slate-900 to-slate-950 border-b border-slate-800/80">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {activeBusiness.logo_url ? (
+                <img
+                  src={activeBusiness.logo_url}
+                  alt={activeBusiness.name}
+                  className="w-12 h-12 rounded-2xl object-cover border border-amber-500/40 shadow-lg shadow-amber-500/30 shrink-0"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-2xl bg-amber-500 flex items-center justify-center font-black text-slate-950 text-xl shadow-lg shadow-amber-500/30 shrink-0">
+                  {activeBusiness.name ? activeBusiness.name.charAt(0).toUpperCase() : 'C'}
+                </div>
+              )}
+              <div>
+                <h1 className="text-base font-extrabold text-slate-100 font-['Outfit']">
+                  {activeBusiness.name}
+                </h1>
+                <p className="text-xs text-slate-400">{activeBranch.name}</p>
               </div>
-            )}
-            <div>
-              <h1 className="text-base font-extrabold text-slate-100 font-['Outfit']">
-                {activeBusiness.name}
-              </h1>
-              <p className="text-xs text-slate-400">{activeBranch.name}</p>
+            </div>
+
+            <div className="px-3.5 py-1.5 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40 text-center font-bold text-xs shadow-inner">
+              <span className="text-[10px] text-amber-400/90 block font-normal">Dining at</span>
+              <span className="flex items-center gap-1.5 justify-center">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                Table {activeTable?.table_number || '01'}
+              </span>
             </div>
           </div>
-
-          <div className="px-3 py-1 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40 text-center font-bold text-xs">
-            <span className="text-[10px] text-amber-400 block font-normal">Dining at</span>
-            Table {activeTable?.table_number || '01'}
-          </div>
-        </div>
 
         {/* Swiggy/Zomato VIP Notification Bar Opt-in */}
         {showNotificationPrompt && (
@@ -914,6 +984,26 @@ export const CustomerOrderingPage: React.FC = () => {
           </div>
         )}
       </Modal>
+
+        {/* Customer Experience Footer */}
+        <div className="mt-auto py-6 px-4 text-center border-t border-slate-900 text-slate-500 text-[11px] space-y-1.5">
+          <p>© {new Date().getFullYear()} {activeBusiness.name} &bull; Contactless Mobile Dining</p>
+          <div className="flex items-center justify-center gap-2 pt-1 text-[10px]">
+            <span className="text-slate-600">⚡ Powered by CafeOS</span>
+            {onExitToAdmin && (
+              <>
+                <span className="text-slate-700">&bull;</span>
+                <button
+                  onClick={onExitToAdmin}
+                  className="text-amber-500/80 hover:text-amber-300 hover:underline cursor-pointer"
+                >
+                  Staff Login / Admin POS
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

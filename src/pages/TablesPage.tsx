@@ -58,10 +58,12 @@ export const TablesPage: React.FC<TablesPageProps> = ({ onNavigate }) => {
   const filteredTables =
     selectedArea === 'ALL' ? tables : tables.filter((t) => t.seating_area === selectedArea);
 
-  // Generate QR image when modal opens
+  // Generate QR image when modal opens using the active live deployment domain
   useEffect(() => {
-    if (selectedTable?.qr_code?.qr_url) {
-      QRCode.toDataURL(selectedTable.qr_code.qr_url, {
+    if (selectedTable) {
+      const codeId = selectedTable.qr_code?.code_identifier || selectedTable.table_number;
+      const targetUrl = `${window.location.origin}/menu/${encodeURIComponent(codeId)}`;
+      QRCode.toDataURL(targetUrl, {
         width: 380,
         margin: 2,
         color: {
@@ -338,19 +340,28 @@ export const TablesPage: React.FC<TablesPageProps> = ({ onNavigate }) => {
               <p className="text-[10px] text-slate-400 mt-0.5">
                 No app installation required &bull; Live Kitchen KDS
               </p>
-              <p className="font-mono text-[9px] text-slate-400 mt-2 break-all">
-                ID: {selectedTable.qr_code?.code_identifier}
-              </p>
+              <div className="mt-2 p-2 rounded-xl bg-slate-100 border border-slate-200">
+                <span className="text-[10px] text-slate-500 block font-semibold">Live Mobile URL:</span>
+                <a
+                  href={`${window.location.origin}/menu/${encodeURIComponent(selectedTable.qr_code?.code_identifier || selectedTable.table_number)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[11px] font-mono font-bold text-amber-600 hover:text-amber-700 hover:underline break-all inline-flex items-center gap-1 justify-center"
+                >
+                  <span>{`${window.location.origin}/menu/${selectedTable.qr_code?.code_identifier || selectedTable.table_number}`}</span>
+                  <ExternalLink className="w-3 h-3 shrink-0" />
+                </a>
+              </div>
             </div>
 
-            <div className="flex items-center justify-center gap-2 pt-2">
+            <div className="flex items-center justify-center gap-2 pt-2 flex-wrap">
               <Button
                 variant="primary"
                 size="sm"
                 leftIcon={<Printer className="w-4 h-4" />}
                 onClick={handlePrintQR}
               >
-                Print Table Stand Card
+                Print Stand Card
               </Button>
 
               <a
@@ -362,17 +373,15 @@ export const TablesPage: React.FC<TablesPageProps> = ({ onNavigate }) => {
                 <span>Download PNG</span>
               </a>
 
-              <Button
-                variant="outline"
-                size="sm"
-                leftIcon={<ExternalLink className="w-3.5 h-3.5 text-amber-400" />}
-                onClick={() => {
-                  setQrModalOpen(false);
-                  onNavigate('customer-ordering');
-                }}
+              <a
+                href={`${window.location.origin}/menu/${encodeURIComponent(selectedTable.qr_code?.code_identifier || selectedTable.table_number)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-colors"
               >
-                Test Menu
-              </Button>
+                <ExternalLink className="w-3.5 h-3.5 text-amber-400" />
+                <span>Open Mobile Menu</span>
+              </a>
             </div>
           </div>
         )}
