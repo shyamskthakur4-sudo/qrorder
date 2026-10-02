@@ -72,6 +72,14 @@ interface BusinessContextType {
   // Inventory Handlers
   updateInventoryStock: (id: string, addedStock: number) => void;
 
+  // Marketing & Smart Broadcasts
+  sendSmartBroadcast: (campaignData: {
+    title: string;
+    message: string;
+    discountCode?: string;
+    linkUrl?: string;
+  }) => void;
+
   // Real-time sound alert toggle
   playKitchenAlert: () => void;
 }
@@ -379,12 +387,72 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setBusinesses((prev) =>
       prev.map((b) => (b.id === activeBusiness.id ? { ...b, ...data, updated_at: new Date().toISOString() } : b))
     );
+    if (isSupabaseConfigured && isValidUUID(activeBusiness.id)) {
+      supabase.from('businesses').update({ ...data, updated_at: new Date().toISOString() }).eq('id', activeBusiness.id).then();
+    }
   };
 
   const updateBranchSettings = (data: Partial<Branch>) => {
     setBranches((prev) =>
       prev.map((br) => (br.id === activeBranch.id ? { ...br, ...data, updated_at: new Date().toISOString() } : br))
     );
+    if (isSupabaseConfigured && isValidUUID(activeBranch.id)) {
+      supabase.from('branches').update({ ...data, updated_at: new Date().toISOString() }).eq('id', activeBranch.id).then();
+    }
+  };
+
+  const sendSmartBroadcast = (campaignData: {
+    title: string;
+    message: string;
+    discountCode?: string;
+    linkUrl?: string;
+  }) => {
+    const newCampaign: Campaign = {
+      id: generateUUID(),
+      business_id: activeBusiness.id,
+      name: campaignData.title,
+      target_segment: 'REGULAR',
+      channel: 'WEB_PUSH',
+      message_template: campaignData.message,
+      status: 'SENT',
+      sent_at: new Date().toISOString(),
+      audience_count: customers.length || 28,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    setCampaigns((prev) => [newCampaign, ...prev]);
+
+    // Send Realtime Broadcast via Supabase
+    if (isSupabaseConfigured) {
+      supabase.channel('public:cafeos_broadcasts').send({
+        type: 'broadcast',
+        event: 'marketing_push',
+        payload: {
+          business_id: activeBusiness.id,
+          business_name: activeBusiness.name,
+          logo_url: activeBusiness.logo_url,
+          title: campaignData.title,
+          message: campaignData.message,
+          discount_code: campaignData.discountCode,
+          link_url: campaignData.linkUrl,
+          sent_at: new Date().toISOString(),
+        },
+      }).then();
+    }
+
+    // Trigger immediate native notification if browser has permission
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification(`${activeBusiness.name}: ${campaignData.title}`, {
+          body: campaignData.message,
+          icon: activeBusiness.logo_url || '/favicon.svg',
+          badge: '/favicon.svg',
+        });
+      } catch (err) {
+        console.warn('Native notification trigger notice:', err);
+      }
+    }
   };
 
   const onboardNewBusiness = async (
@@ -904,6 +972,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         updateMenuItem,
         deleteMenuItem,
         updateInventoryStock,
+        sendSmartBroadcast,
         playKitchenAlert,
       }}
     >

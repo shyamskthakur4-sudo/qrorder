@@ -279,7 +279,7 @@ export interface Campaign {
   business_id: string;
   name: string;
   target_segment?: CustomerSegment;
-  channel: 'WHATSAPP' | 'SMS' | 'EMAIL';
+  channel: 'WHATSAPP' | 'SMS' | 'EMAIL' | 'WEB_PUSH';
   message_template: string;
   offer_coupon_id?: string;
   status: 'DRAFT' | 'SCHEDULED' | 'SENT' | 'FAILED';

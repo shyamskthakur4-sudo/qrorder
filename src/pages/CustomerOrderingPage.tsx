@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShoppingBag,
   Search,
@@ -17,6 +17,7 @@ import {
   ChefHat,
   Utensils,
   Smartphone,
+  Bell,
 } from 'lucide-react';
 import { useBusiness } from '../context/BusinessContext';
 import { MenuItem, MenuVariant, MenuAddon, OrderItem, OrderItemAddon, Order } from '../types';
@@ -26,6 +27,7 @@ import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { Input } from '../components/ui/Input';
 import { useToast } from '../components/ui/Toast';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 interface CartItem {
   id: string;
@@ -49,6 +51,65 @@ export const CustomerOrderingPage: React.FC = () => {
     createOrder,
   } = useBusiness();
   const { success, error, info } = useToast();
+
+  // Web Push Notification Permission & Opt-In State
+  const [showNotificationPrompt, setShowNotificationPrompt] = useState<boolean>(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      return Notification.permission === 'default';
+    }
+    return false;
+  });
+
+  const handleRequestNotifications = async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      info('Not Supported', 'Push notifications are not supported on this browser.');
+      return;
+    }
+
+    try {
+      const perm = await Notification.requestPermission();
+      setShowNotificationPrompt(false);
+
+      if (perm === 'granted') {
+        success('Notifications Enabled! 🎉', 'You will receive real-time food updates & secret flash discounts on your phone.');
+        new Notification(`${activeBusiness.name}`, {
+          body: '🎉 Notifications enabled! We will alert you the moment your food is ready + VIP table deals.',
+          icon: activeBusiness.logo_url || '/favicon.svg',
+          badge: '/favicon.svg',
+        });
+      } else {
+        info('Notifications Blocked', 'You can change this anytime in browser site permissions.');
+      }
+    } catch (e) {
+      console.warn('Notification permission error:', e);
+    }
+  };
+
+  // Listen to live marketing broadcasts & order updates
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+
+    const channel = supabase
+      .channel('public:cafeos_broadcasts')
+      .on('broadcast', { event: 'marketing_push' }, (payload: any) => {
+        const data = payload?.payload;
+        if (data && data.business_id === activeBusiness.id) {
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+            new Notification(`${data.business_name || activeBusiness.name}: ${data.title}`, {
+              body: data.message,
+              icon: data.logo_url || activeBusiness.logo_url || '/favicon.svg',
+              badge: '/favicon.svg',
+            });
+          }
+          info(`📢 ${data.title}`, data.message);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeBusiness.id]);
 
   // Selected table simulation (default to first active table)
   const [selectedTableId, setSelectedTableId] = useState<string>(tables[0]?.id || '');
@@ -217,6 +278,15 @@ export const CustomerOrderingPage: React.FC = () => {
       notes: `Ordered via Customer QR (Table: ${activeTable?.table_number})`,
     });
 
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification(`${activeBusiness.name} - Order Placed! 🍽️`, {
+          body: `Order ${newOrder.order_number} received! Our kitchen is preparing it fresh for Table ${activeTable?.table_number}.`,
+          icon: activeBusiness.logo_url || '/favicon.svg',
+        });
+      } catch {}
+    }
+
     setPlacedOrder(newOrder);
     setCart([]);
     setIsCartOpen(false);
@@ -250,9 +320,17 @@ export const CustomerOrderingPage: React.FC = () => {
       <div className="relative p-5 bg-gradient-to-b from-amber-950/40 via-slate-900 to-slate-950 border-b border-slate-800/80">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-amber-500 flex items-center justify-center font-black text-slate-950 text-xl shadow-lg shadow-amber-500/30">
-              C
-            </div>
+            {activeBusiness.logo_url ? (
+              <img
+                src={activeBusiness.logo_url}
+                alt={activeBusiness.name}
+                className="w-12 h-12 rounded-2xl object-cover border border-amber-500/40 shadow-lg shadow-amber-500/30 shrink-0"
+              />
+            ) : (
+              <div className="w-12 h-12 rounded-2xl bg-amber-500 flex items-center justify-center font-black text-slate-950 text-xl shadow-lg shadow-amber-500/30 shrink-0">
+                {activeBusiness.name ? activeBusiness.name.charAt(0).toUpperCase() : 'C'}
+              </div>
+            )}
             <div>
               <h1 className="text-base font-extrabold text-slate-100 font-['Outfit']">
                 {activeBusiness.name}
@@ -267,8 +345,42 @@ export const CustomerOrderingPage: React.FC = () => {
           </div>
         </div>
 
+        {/* Swiggy/Zomato VIP Notification Bar Opt-in */}
+        {showNotificationPrompt && (
+          <div className="mt-3 p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/20 via-orange-500/15 to-purple-500/20 border border-amber-500/40 backdrop-blur-md shadow-lg shadow-amber-500/10 animate-in fade-in duration-300">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-300 shrink-0 text-base shadow-sm">
+                🔔
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <h4 className="text-xs font-bold text-slate-100">Live Order Tracking & VIP Deals</h4>
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-amber-500 text-slate-950">Swiggy Speed</span>
+                </div>
+                <p className="text-[11px] text-slate-300 mt-0.5 leading-snug">
+                  Get real-time updates when your food is ready & secret 20% off table codes directly in your notification bar!
+                </p>
+                <div className="mt-2.5 flex items-center gap-2">
+                  <button
+                    onClick={handleRequestNotifications}
+                    className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-amber-500/25 transition-all cursor-pointer"
+                  >
+                    <span>Turn On Notifications</span>
+                  </button>
+                  <button
+                    onClick={() => setShowNotificationPrompt(false)}
+                    className="px-2.5 py-1.5 rounded-xl text-slate-400 hover:text-slate-200 text-xs font-semibold cursor-pointer"
+                  >
+                    Later
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Promo strip */}
-        <div className="mt-4 p-2.5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-500/20 to-yellow-500/10 border border-amber-500/30 flex items-center justify-between text-xs">
+        <div className="mt-3 p-2.5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-500/20 to-yellow-500/10 border border-amber-500/30 flex items-center justify-between text-xs">
           <span className="flex items-center gap-1.5 font-bold text-amber-300">
             <Tag className="w-3.5 h-3.5" /> Use code WELCOME20 for 20% off
           </span>

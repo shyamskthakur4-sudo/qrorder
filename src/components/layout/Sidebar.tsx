@@ -172,20 +172,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Brand Header */}
         <div className="p-5 border-b border-slate-800/80 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-500 via-amber-400 to-yellow-300 flex items-center justify-center shadow-lg shadow-amber-500/25 text-slate-950 font-black text-xl">
-              C
-            </div>
+            {activeBusiness.logo_url ? (
+              <img
+                src={activeBusiness.logo_url}
+                alt={activeBusiness.name}
+                className="w-10 h-10 rounded-2xl object-cover border border-amber-500/40 shadow-lg shadow-amber-500/20 shrink-0"
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-500 via-amber-400 to-yellow-300 flex items-center justify-center shadow-lg shadow-amber-500/25 text-slate-950 font-black text-xl shrink-0">
+                {activeBusiness.name ? activeBusiness.name.charAt(0).toUpperCase() : 'C'}
+              </div>
+            )}
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="font-extrabold text-lg text-slate-100 font-['Outfit'] tracking-tight">
-                  CafeOS
+                <span className="font-extrabold text-lg text-slate-100 font-['Outfit'] tracking-tight truncate max-w-[130px]">
+                  {activeBusiness.name}
                 </span>
                 <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
                   {activeBusiness.subscription_plan}
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 truncate max-w-[130px]">
-                {activeBusiness.name}
+                {activeBranch.name}
               </p>
             </div>
           </div>
