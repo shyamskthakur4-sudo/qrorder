@@ -7,8 +7,10 @@ import {
   Radio,
   PlusCircle,
   ExternalLink,
+  LogIn,
 } from 'lucide-react';
 import { useBusiness } from '../../context/BusinessContext';
+import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../ui/Toast';
 import { NavigationPage } from './Sidebar';
 import { isSupabaseConfigured } from '../../lib/supabase';
@@ -27,6 +29,7 @@ export const Topbar: React.FC<TopbarProps> = ({
   onOpenNewOrderModal,
 }) => {
   const { activeBusiness, activeBranch, playKitchenAlert } = useBusiness();
+  const { user } = useAuth();
   const { info } = useToast();
   const [soundEnabled, setSoundEnabled] = React.useState(true);
 
@@ -145,6 +148,20 @@ export const Topbar: React.FC<TopbarProps> = ({
           >
             <PlusCircle className="w-4 h-4" />
             <span className="hidden sm:inline">New POS Order</span>
+          </button>
+        )}
+
+        {/* Sign In button if logged out */}
+        {!user && (
+          <button
+            onClick={() => {
+              window.history.pushState({}, '', '/login');
+              window.dispatchEvent(new PopStateEvent('popstate'));
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition-all cursor-pointer shadow-md shadow-amber-500/20"
+          >
+            <LogIn className="w-3.5 h-3.5" />
+            <span>Sign In</span>
           </button>
         )}
       </div>

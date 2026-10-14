@@ -33,6 +33,12 @@ export interface Business {
   timezone: string;
   status: 'ACTIVE' | 'TRIAL' | 'SUSPENDED' | 'CANCELLED';
   subscription_plan: SubscriptionPlan;
+  google_review_url?: string;
+  google_place_id?: string;
+  enable_google_review_prompt?: boolean;
+  min_rating_for_google?: number;
+  review_reward_text?: string;
+  review_coupon_code?: string;
   created_at: string;
   updated_at: string;
 }
@@ -54,6 +60,8 @@ export interface Branch {
   opening_time: string;
   closing_time: string;
   is_active: boolean;
+  google_review_url?: string;
+  google_place_id?: string;
   created_at: string;
   updated_at: string;
 }
@@ -212,6 +220,11 @@ export interface Order {
   payment_status: PaymentStatus;
   payment_method: PaymentMethod;
   notes?: string;
+  review_submitted?: boolean;
+  review_rating?: number;
+  review_feedback?: string;
+  review_platform?: 'GOOGLE' | 'INTERNAL';
+  review_requested_at?: string;
   created_at: string;
   updated_at: string;
   table?: RestaurantTable;

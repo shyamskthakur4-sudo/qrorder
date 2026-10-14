@@ -18,6 +18,9 @@ import {
   Utensils,
   Smartphone,
   Bell,
+  Star,
+  Gift,
+  ExternalLink,
 } from 'lucide-react';
 import { useBusiness } from '../context/BusinessContext';
 import { MenuItem, MenuVariant, MenuAddon, OrderItem, OrderItemAddon, Order } from '../types';
@@ -28,6 +31,7 @@ import { Modal } from '../components/ui/Modal';
 import { Input } from '../components/ui/Input';
 import { useToast } from '../components/ui/Toast';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { GoogleReviewModal, GoogleIcon } from '../components/reviews/GoogleReviewModal';
 
 interface CartItem {
   id: string;
@@ -58,7 +62,10 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
     categories,
     menuItems,
     coupons,
+    orders,
     createOrder,
+    updateOrderStatus,
+    submitOrderReview,
   } = useBusiness();
   const { success, error, info } = useToast();
 
@@ -197,7 +204,53 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
   const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discount: number } | null>(null);
 
   // Active placed order tracking screen
+  const [placedOrderId, setPlacedOrderId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('cafeos_active_order_id') || null;
+    }
+    return null;
+  });
   const [placedOrder, setPlacedOrder] = useState<Order | null>(null);
+  const [isTrackerOpen, setIsTrackerOpen] = useState<boolean>(false);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState<boolean>(false);
+  const [hasAutoPromptedReview, setHasAutoPromptedReview] = useState<boolean>(false);
+
+  // Synchronize placed order with real-time context orders state
+  const currentPlacedOrder: Order | null =
+    orders.find((o) => o.id === (placedOrderId || placedOrder?.id)) ||
+    placedOrder;
+
+  // Auto prompt Google Review when order status reaches COMPLETED
+  useEffect(() => {
+    if (
+      currentPlacedOrder &&
+      currentPlacedOrder.status === 'COMPLETED' &&
+      !currentPlacedOrder.review_submitted &&
+      !hasAutoPromptedReview &&
+      activeBusiness.enable_google_review_prompt !== false
+    ) {
+      setHasAutoPromptedReview(true);
+      const timer = setTimeout(() => {
+        setIsReviewModalOpen(true);
+      }, 600);
+      return () => clearTimeout(timer);
+    }
+  }, [
+    currentPlacedOrder,
+    hasAutoPromptedReview,
+    activeBusiness.enable_google_review_prompt,
+  ]);
+
+  const handleReviewSubmit = (review: {
+    rating: number;
+    feedback?: string;
+    platform: 'GOOGLE' | 'INTERNAL';
+  }) => {
+    if (currentPlacedOrder) {
+      submitOrderReview(currentPlacedOrder.id, review);
+      success('Review Saved', 'Thank you for supporting our business!');
+    }
+  };
 
   // Filtered menu
   const displayItems = menuItems.filter((m) => {
@@ -350,8 +403,14 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
     if (custPhone.trim() && typeof window !== 'undefined') {
       localStorage.setItem('cafeos_cust_phone', custPhone.trim());
     }
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('cafeos_active_order_id', newOrder.id);
+    }
 
+    setPlacedOrderId(newOrder.id);
     setPlacedOrder(newOrder);
+    setIsTrackerOpen(true);
+    setHasAutoPromptedReview(false);
     setCart([]);
     setIsCartOpen(false);
     setIsCheckoutOpen(false);
@@ -565,6 +624,64 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
           </div>
         ))}
       </div>
+
+      {/* Floating Order Status & Google Review Banner */}
+      {cart.length === 0 && currentPlacedOrder && (
+        <div className="fixed sm:absolute bottom-4 left-4 right-4 z-20">
+          {currentPlacedOrder.status === 'COMPLETED' ? (
+            !currentPlacedOrder.review_submitted ? (
+              <button
+                type="button"
+                onClick={() => setIsReviewModalOpen(true)}
+                className="w-full p-3 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 font-bold shadow-2xl shadow-amber-500/40 flex items-center justify-between transition-transform active:scale-[0.98] cursor-pointer animate-pulse"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-slate-950 flex items-center justify-center p-1.5 shadow-sm">
+                    <GoogleIcon className="w-5 h-5" />
+                  </div>
+                  <div className="text-left">
+                    <span className="text-xs font-black block font-['Outfit']">Order Completed!</span>
+                    <span className="text-[11px] font-semibold text-slate-900">
+                      Rate us on Google &bull; Get 10% Off 🎁
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 text-slate-950 font-bold text-xs bg-slate-950/15 px-2.5 py-1 rounded-xl">
+                  <Star className="w-3.5 h-3.5 fill-slate-950" />
+                  <span>Review</span>
+                </div>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsTrackerOpen(true)}
+                className="w-full p-3 rounded-2xl bg-slate-900/95 border border-emerald-500/40 text-emerald-300 font-semibold shadow-2xl flex items-center justify-between transition-transform active:scale-[0.98] cursor-pointer"
+              >
+                <div className="flex items-center gap-2 text-xs">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>Order {currentPlacedOrder.order_number} Completed &bull; Reviewed</span>
+                </div>
+                <span className="text-xs text-slate-400">View Details &rarr;</span>
+              </button>
+            )
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsTrackerOpen(true)}
+              className="w-full p-3 rounded-2xl bg-slate-900/95 border border-amber-500/40 text-slate-100 font-semibold shadow-2xl flex items-center justify-between transition-transform active:scale-[0.98] cursor-pointer"
+            >
+              <div className="flex items-center gap-2 text-xs">
+                <ChefHat className="w-4 h-4 text-amber-400" />
+                <span>
+                  Order {currentPlacedOrder.order_number}:{' '}
+                  <strong className="text-amber-400">{currentPlacedOrder.status}</strong>
+                </span>
+              </div>
+              <span className="text-xs text-amber-400 font-bold">Track Live &rarr;</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Floating Sticky Cart Bar */}
       {cart.length > 0 && (
@@ -918,72 +1035,274 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
 
       {/* Live Placed Order Tracking Screen */}
       <Modal
-        isOpen={Boolean(placedOrder)}
-        onClose={() => setPlacedOrder(null)}
+        isOpen={isTrackerOpen || (Boolean(currentPlacedOrder) && !placedOrder && isTrackerOpen)}
+        onClose={() => setIsTrackerOpen(false)}
         title={
-          <div className="flex items-center gap-2 text-emerald-400">
-            <CheckCircle2 className="w-5 h-5" />
-            <span>Order Dispatched to Kitchen!</span>
-          </div>
+          currentPlacedOrder?.status === 'COMPLETED' ? (
+            <div className="flex items-center gap-2 text-amber-400">
+              <Sparkles className="w-5 h-5 text-amber-400" />
+              <span>Order Completed! 🎉</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-emerald-400">
+              <CheckCircle2 className="w-5 h-5" />
+              <span>Order Dispatched to Kitchen!</span>
+            </div>
+          )
         }
-        description="Your food is being prepared. Track live kitchen status below."
+        description={
+          currentPlacedOrder?.status === 'COMPLETED'
+            ? 'Thank you for dining with us! How was your experience?'
+            : 'Your food is being prepared. Track live kitchen status below.'
+        }
         maxWidth="sm"
       >
-        {placedOrder && (
+        {currentPlacedOrder && (
           <div className="space-y-4 text-center">
+            {/* Order Card Overview */}
             <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 text-left space-y-2">
               <div className="flex items-center justify-between">
                 <span className="font-mono font-bold text-amber-400 text-base">
-                  {placedOrder.order_number}
+                  {currentPlacedOrder.order_number}
                 </span>
-                <Badge variant="amber" dot>
-                  {placedOrder.status}
+                <Badge
+                  variant={currentPlacedOrder.status === 'COMPLETED' ? 'success' : 'amber'}
+                  dot
+                >
+                  {currentPlacedOrder.status}
                 </Badge>
               </div>
               <p className="text-xs text-slate-400">
-                Table {activeTable?.table_number} &bull; {custName}
+                Table {activeTable?.table_number || currentPlacedOrder.table?.table_number || '4'} &bull;{' '}
+                {currentPlacedOrder.customer_name}
               </p>
               <p className="text-xs text-slate-400">
-                {placedOrder.items?.length || 0} items ordered &bull; Total:{' '}
+                {currentPlacedOrder.items?.length || 0} items ordered &bull; Total:{' '}
                 <strong className="text-slate-100">
-                  {formatCurrency(placedOrder.total_amount, 'INR', '₹')}
+                  {formatCurrency(currentPlacedOrder.total_amount, 'INR', '₹')}
                 </strong>
               </p>
             </div>
+
+            {/* Google Review Prompt Card (Prominently featured when order is COMPLETED) */}
+            {currentPlacedOrder.status === 'COMPLETED' && (
+              <div className="p-4 rounded-3xl bg-gradient-to-b from-amber-500/15 via-slate-900 to-slate-900 border border-amber-500/30 text-left space-y-3 shadow-lg">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center p-1.5 shadow-sm">
+                      <GoogleIcon className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-100 font-['Outfit']">
+                        Rate Your Experience on Google
+                      </h4>
+                      <p className="text-[10px] text-amber-400">
+                        {activeBusiness.review_reward_text || 'Help our local team & earn 10% off your next visit!'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {currentPlacedOrder.review_submitted ? (
+                  <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 space-y-1.5 text-xs text-emerald-300">
+                    <div className="flex items-center gap-1.5 font-bold">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      <span>Review Recorded ({currentPlacedOrder.review_rating}★ on {currentPlacedOrder.review_platform})</span>
+                    </div>
+                    <p className="text-[11px] text-slate-300">
+                      Thank you for your generous feedback! Show this to staff or use code{' '}
+                      <strong className="font-mono text-amber-300">{activeBusiness.review_coupon_code || 'REVIEW10'}</strong>{' '}
+                      for your reward.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-center gap-1.5 py-1 bg-slate-950/60 rounded-2xl border border-slate-800">
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setIsReviewModalOpen(true)}
+                          className="p-1 hover:scale-125 transition-transform text-amber-400 cursor-pointer"
+                        >
+                          <Star className="w-6 h-6 fill-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.5)]" />
+                        </button>
+                      ))}
+                    </div>
+
+                    <Button
+                      variant="primary"
+                      className="w-full bg-white hover:bg-slate-100 text-slate-900 font-bold font-['Outfit'] shadow-md"
+                      onClick={() => setIsReviewModalOpen(true)}
+                      leftIcon={<GoogleIcon className="w-4 h-4" />}
+                      rightIcon={<ExternalLink className="w-3.5 h-3.5 ml-auto text-slate-600" />}
+                    >
+                      Leave a Google Review
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Live Visual Tracker Progression */}
             <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 text-left space-y-3">
               <h4 className="text-xs font-bold text-slate-300">Kitchen Pipeline Status</h4>
               <div className="space-y-2 text-xs">
-                <div className="flex items-center gap-2 text-emerald-400 font-semibold">
+                {/* Step 1 */}
+                <div
+                  className={`flex items-center gap-2 font-semibold ${
+                    ['PLACED', 'ACCEPTED', 'PREPARING', 'READY', 'SERVED', 'COMPLETED'].includes(currentPlacedOrder.status)
+                      ? 'text-emerald-400'
+                      : 'text-slate-500'
+                  }`}
+                >
                   <CheckCircle2 className="w-4 h-4 shrink-0" />
                   <span>1. Order Placed & Confirmed</span>
                 </div>
-                <div className="flex items-center gap-2 text-amber-400 font-semibold">
-                  <ChefHat className="w-4 h-4 shrink-0 animate-bounce" />
+
+                {/* Step 2 */}
+                <div
+                  className={`flex items-center gap-2 font-semibold ${
+                    ['PREPARING', 'READY', 'SERVED', 'COMPLETED'].includes(currentPlacedOrder.status)
+                      ? 'text-amber-400'
+                      : 'text-slate-500'
+                  }`}
+                >
+                  <ChefHat
+                    className={`w-4 h-4 shrink-0 ${
+                      currentPlacedOrder.status === 'PREPARING' ? 'animate-bounce text-amber-400' : ''
+                    }`}
+                  />
                   <span>2. Kitchen Station Preparing ({activeBranch.name})</span>
                 </div>
-                <div className="flex items-center gap-2 text-slate-500">
+
+                {/* Step 3 */}
+                <div
+                  className={`flex items-center gap-2 font-semibold ${
+                    ['READY', 'SERVED', 'COMPLETED'].includes(currentPlacedOrder.status)
+                      ? 'text-purple-400'
+                      : 'text-slate-500'
+                  }`}
+                >
                   <Clock className="w-4 h-4 shrink-0" />
                   <span>3. Plated & Ready for Service</span>
                 </div>
-                <div className="flex items-center gap-2 text-slate-500">
+
+                {/* Step 4 */}
+                <div
+                  className={`flex items-center gap-2 font-semibold ${
+                    ['SERVED', 'COMPLETED'].includes(currentPlacedOrder.status)
+                      ? 'text-emerald-400'
+                      : 'text-slate-500'
+                  }`}
+                >
                   <Utensils className="w-4 h-4 shrink-0" />
-                  <span>4. Served at Table {activeTable?.table_number}</span>
+                  <span>4. Served at Table {activeTable?.table_number || currentPlacedOrder.table?.table_number || '4'}</span>
+                </div>
+
+                {/* Step 5: Completed */}
+                <div
+                  className={`flex items-center gap-2 font-semibold ${
+                    currentPlacedOrder.status === 'COMPLETED'
+                      ? 'text-amber-400'
+                      : 'text-slate-600'
+                  }`}
+                >
+                  <Sparkles className="w-4 h-4 shrink-0" />
+                  <span>5. Order Completed & Dining Concluded 🎉</span>
                 </div>
               </div>
             </div>
 
-            <Button
-              variant="primary"
-              className="w-full"
-              onClick={() => setPlacedOrder(null)}
-            >
-              Order More Items
-            </Button>
+            {/* Quick Demo Simulator Bar to test completion & Google review immediately */}
+            <div className="p-2.5 rounded-2xl bg-slate-950 border border-slate-800 text-left space-y-1.5">
+              <span className="text-[10px] uppercase tracking-wider font-bold text-slate-500 block">
+                ⚡ Demo Stage Controller:
+              </span>
+              <div className="grid grid-cols-4 gap-1 text-[10px]">
+                <button
+                  type="button"
+                  onClick={() => updateOrderStatus(currentPlacedOrder.id, 'PREPARING')}
+                  className={`py-1 rounded-lg border transition-colors cursor-pointer ${
+                    currentPlacedOrder.status === 'PREPARING'
+                      ? 'bg-amber-500/20 border-amber-500 text-amber-300 font-bold'
+                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  🍳 Prep
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateOrderStatus(currentPlacedOrder.id, 'READY')}
+                  className={`py-1 rounded-lg border transition-colors cursor-pointer ${
+                    currentPlacedOrder.status === 'READY'
+                      ? 'bg-purple-500/20 border-purple-500 text-purple-300 font-bold'
+                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  📦 Ready
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateOrderStatus(currentPlacedOrder.id, 'SERVED')}
+                  className={`py-1 rounded-lg border transition-colors cursor-pointer ${
+                    currentPlacedOrder.status === 'SERVED'
+                      ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 font-bold'
+                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  🍽️ Served
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateOrderStatus(currentPlacedOrder.id, 'COMPLETED');
+                    setIsReviewModalOpen(true);
+                  }}
+                  className={`py-1 rounded-lg border transition-colors cursor-pointer font-bold ${
+                    currentPlacedOrder.status === 'COMPLETED'
+                      ? 'bg-amber-500 border-amber-400 text-slate-950'
+                      : 'bg-amber-500/20 border-amber-500/50 text-amber-300 hover:bg-amber-500/30'
+                  }`}
+                  title="Mark order COMPLETED and trigger Google Review flow"
+                >
+                  🎉 Complete
+                </button>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                variant="secondary"
+                className="flex-1 text-xs"
+                onClick={() => setIsTrackerOpen(false)}
+              >
+                Close Tracker
+              </Button>
+              <Button
+                variant="primary"
+                className="flex-1 text-xs"
+                onClick={() => {
+                  setIsTrackerOpen(false);
+                  info('Browse Menu', 'You can order more items whenever ready.');
+                }}
+              >
+                Order More Items
+              </Button>
+            </div>
           </div>
         )}
       </Modal>
+
+      {/* Google Review Modal Popup */}
+      <GoogleReviewModal
+        isOpen={isReviewModalOpen}
+        onClose={() => setIsReviewModalOpen(false)}
+        order={currentPlacedOrder}
+        business={activeBusiness}
+        branch={activeBranch}
+        onSubmitReview={handleReviewSubmit}
+      />
 
         {/* Customer Experience Footer */}
         <div className="mt-auto py-6 px-4 text-center border-t border-slate-900 text-slate-500 text-[11px] space-y-1.5">

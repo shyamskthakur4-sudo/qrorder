@@ -3,14 +3,24 @@ import { StaffRole, UserProfile, Staff } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { INITIAL_STAFF } from '../lib/mockData';
 
-interface AuthContextType {
+export interface SignupResult {
+  success: boolean;
+  needsEmailConfirmation?: boolean;
+  message?: string;
+  email?: string;
+}
+
+export interface AuthContextType {
   user: UserProfile | null;
   staff: Staff | null;
   role: StaffRole;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password?: string) => Promise<boolean>;
-  signup: (email: string, password?: string, fullName?: string, businessName?: string) => Promise<boolean>;
+  loginWithMagicLink: (email: string) => Promise<boolean>;
+  signup: (email: string, password?: string, fullName?: string, businessName?: string) => Promise<SignupResult>;
+  resetPassword: (email: string) => Promise<boolean>;
+  resendConfirmationEmail: (email: string) => Promise<boolean>;
   staffPinLogin: (pin: string, branchId?: string) => Promise<boolean>;
   logout: () => Promise<void>;
   switchRolePreview: (role: StaffRole) => void;
@@ -108,28 +118,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, password = ''): Promise<boolean> => {
     setIsLoading(true);
+    const cleanEmail = email.trim().toLowerCase();
     try {
       if (isSupabaseConfigured) {
         const { data, error } = await supabase.auth.signInWithPassword({
-          email,
+          email: cleanEmail,
           password,
         });
         if (error) throw error;
         if (data.user) {
-          setUser({
+          const loggedInUser: UserProfile = {
             id: data.user.id,
-            email: data.user.email || email,
-            full_name: data.user.user_metadata?.full_name || 'Owner',
+            email: data.user.email || cleanEmail,
+            full_name: data.user.user_metadata?.full_name || cleanEmail.split('@')[0],
             created_at: data.user.created_at,
             updated_at: data.user.created_at,
-          });
-          setRole('OWNER');
+          };
+          setUser(loggedInUser);
+
+          // Query staff table to retrieve tenant and role
+          try {
+            const { data: staffData } = await supabase
+              .from('staff')
+              .select('*')
+              .or(`user_id.eq.${data.user.id},email.eq.${cleanEmail}`)
+              .limit(1)
+              .maybeSingle();
+
+            if (staffData) {
+              setStaff(staffData);
+              setRole(staffData.role);
+            } else {
+              setRole('OWNER');
+            }
+          } catch {
+            setRole('OWNER');
+          }
+
           return true;
         }
       }
 
       // Local / Offline / Demo authentication
-      const matchedStaff = INITIAL_STAFF.find((s) => s.email.toLowerCase() === email.toLowerCase());
+      const matchedStaff = INITIAL_STAFF.find((s) => s.email.toLowerCase() === cleanEmail);
       if (matchedStaff) {
         setStaff(matchedStaff);
         setRole(matchedStaff.role);
@@ -142,7 +173,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         });
-      } else if (email === 'admin@cafeos.app') {
+      } else if (cleanEmail === 'admin@cafeos.app') {
         setRole('SUPER_ADMIN');
         setUser({
           id: 'super-admin-01',
@@ -157,8 +188,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setRole('OWNER');
         setUser({
           id: 'user-' + Date.now(),
-          email,
-          full_name: email.split('@')[0],
+          email: cleanEmail,
+          full_name: cleanEmail.split('@')[0],
           is_superadmin: false,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -170,42 +201,133 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const loginWithMagicLink = async (email: string): Promise<boolean> => {
+    setIsLoading(true);
+    const cleanEmail = email.trim().toLowerCase();
+    try {
+      if (!isSupabaseConfigured) {
+        throw new Error('Supabase is not configured for Magic Link emails.');
+      }
+      const { error } = await supabase.auth.signInWithOtp({
+        email: cleanEmail,
+        options: {
+          emailRedirectTo: window.location.origin,
+          data: {
+            app_name: 'CafeOS',
+          },
+        },
+      });
+      if (error) throw error;
+      return true;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const signup = async (
     email: string,
     password = '',
     fullName = 'Business Owner',
-    _businessName = 'My New Cafe'
-  ): Promise<boolean> => {
+    businessName = 'My New Cafe'
+  ): Promise<SignupResult> => {
     setIsLoading(true);
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName = fullName.trim() || 'Business Owner';
+    const cleanBiz = businessName.trim() || `${cleanName}'s Cafe`;
+
     try {
       if (isSupabaseConfigured) {
         const { data, error } = await supabase.auth.signUp({
-          email,
+          email: cleanEmail,
           password,
           options: {
-            data: { full_name: fullName },
+            data: {
+              full_name: cleanName,
+              business_name: cleanBiz,
+              app_name: 'CafeOS',
+            },
+            emailRedirectTo: window.location.origin,
           },
         });
         if (error) throw error;
+
+        // Check if email confirmation is required
+        const needsConfirmation = !data.session && data.user && !data.user.email_confirmed_at;
+
         if (data.user) {
-          setUser({
+          const newUser: UserProfile = {
             id: data.user.id,
-            email: data.user.email || email,
-            full_name: fullName,
+            email: data.user.email || cleanEmail,
+            full_name: cleanName,
             created_at: data.user.created_at,
             updated_at: data.user.created_at,
-          });
+          };
+
+          if (!needsConfirmation) {
+            setUser(newUser);
+            setRole('OWNER');
+            return {
+              success: true,
+              needsEmailConfirmation: false,
+              message: 'Account created! Welcome to CafeOS.',
+              email: cleanEmail,
+            };
+          } else {
+            return {
+              success: true,
+              needsEmailConfirmation: true,
+              message: `Verification email sent by CafeOS to ${cleanEmail}. Please check your inbox and verify your email.`,
+              email: cleanEmail,
+            };
+          }
         }
-      } else {
-        setUser({
-          id: 'user-' + Date.now(),
-          email,
-          full_name: fullName,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
       }
+
+      // Offline / Local fallback
+      setUser({
+        id: 'user-' + Date.now(),
+        email: cleanEmail,
+        full_name: cleanName,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
       setRole('OWNER');
+      return { success: true, needsEmailConfirmation: false, email: cleanEmail };
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const resetPassword = async (email: string): Promise<boolean> => {
+    setIsLoading(true);
+    const cleanEmail = email.trim().toLowerCase();
+    try {
+      if (isSupabaseConfigured) {
+        const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+          redirectTo: `${window.location.origin}/`,
+        });
+        if (error) throw error;
+      }
+      return true;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const resendConfirmationEmail = async (email: string): Promise<boolean> => {
+    setIsLoading(true);
+    const cleanEmail = email.trim().toLowerCase();
+    try {
+      if (isSupabaseConfigured) {
+        const { error } = await supabase.auth.resend({
+          type: 'signup',
+          email: cleanEmail,
+          options: {
+            emailRedirectTo: window.location.origin,
+          },
+        });
+        if (error) throw error;
+      }
       return true;
     } finally {
       setIsLoading(false);
@@ -290,7 +412,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAuthenticated: Boolean(user),
         isLoading,
         login,
+        loginWithMagicLink,
         signup,
+        resetPassword,
+        resendConfirmationEmail,
         staffPinLogin,
         logout,
         switchRolePreview,

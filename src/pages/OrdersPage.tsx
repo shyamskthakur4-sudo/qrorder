@@ -12,6 +12,12 @@ import {
   User,
   Phone,
   FileText,
+  Star,
+  Send,
+  Copy,
+  ExternalLink,
+  MessageSquare,
+  Sparkles,
 } from 'lucide-react';
 import { useBusiness } from '../context/BusinessContext';
 import { Order, OrderStatus, RestaurantTable, MenuItem } from '../types';
@@ -22,6 +28,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { useToast } from '../components/ui/Toast';
+import { GoogleIcon } from '../components/reviews/GoogleReviewModal';
 
 export const OrdersPage: React.FC = () => {
   const {
@@ -32,6 +39,7 @@ export const OrdersPage: React.FC = () => {
     menuItems,
     updateOrderStatus,
     createOrder,
+    markReviewRequested,
   } = useBusiness();
   const { success, error, info } = useToast();
 
@@ -40,6 +48,41 @@ export const OrdersPage: React.FC = () => {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [isNewPosOrderOpen, setIsNewPosOrderOpen] = useState(false);
+  const [reviewOrderModal, setReviewOrderModal] = useState<Order | null>(null);
+
+  const handleSendWhatsAppReview = (order: Order) => {
+    const url =
+      activeBranch.google_review_url ||
+      activeBusiness.google_review_url ||
+      `https://www.google.com/search?q=${encodeURIComponent(`${activeBusiness.name} ${activeBranch.name} reviews`)}`;
+
+    const rewardText =
+      activeBusiness.review_reward_text || 'Enjoy 10% off your next visit!';
+    const message = `Hi ${order.customer_name}! 👋 Thank you for dining with us at ${activeBusiness.name} (${activeBranch.name}) today! ☕\n\nCould you take 30 seconds to rate us on Google? It means the world to our team:\n⭐ ${url}\n\n🎁 ${rewardText}`;
+
+    markReviewRequested(order.id);
+
+    const cleanPhone = (order.customer_phone || '').replace(/[^0-9]/g, '');
+    const waUrl = cleanPhone
+      ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`
+      : `https://wa.me/?text=${encodeURIComponent(message)}`;
+
+    window.open(waUrl, '_blank', 'noopener,noreferrer');
+    success('WhatsApp Invite Opened', `Google review request created for ${order.customer_name}.`);
+  };
+
+  const handleCopyReviewLink = (order: Order) => {
+    const url =
+      activeBranch.google_review_url ||
+      activeBusiness.google_review_url ||
+      `https://www.google.com/search?q=${encodeURIComponent(`${activeBusiness.name} ${activeBranch.name} reviews`)}`;
+
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(url);
+      markReviewRequested(order.id);
+      success('Link Copied! 📋', 'Direct Google review link copied to clipboard.');
+    }
+  };
 
   // New POS Order Form
   const [posCustomerName, setPosCustomerName] = useState('Walk-in Guest');
@@ -296,6 +339,23 @@ export const OrdersPage: React.FC = () => {
                   </span>
                 </div>
 
+                {/* Review status indicator if available */}
+                {order.review_submitted && (
+                  <div className="flex items-center gap-1.5 text-xs text-amber-300 bg-amber-500/10 px-2.5 py-1 rounded-xl border border-amber-500/20">
+                    <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400 shrink-0" />
+                    <span className="font-semibold">{order.review_rating}★ {order.review_platform === 'GOOGLE' ? 'Google Review' : 'Feedback'}</span>
+                    {order.review_feedback && (
+                      <span className="truncate text-slate-400 text-[11px]">&bull; "{order.review_feedback}"</span>
+                    )}
+                  </div>
+                )}
+                {!order.review_submitted && order.review_requested_at && (
+                  <div className="flex items-center gap-1.5 text-[11px] text-slate-400 bg-slate-900 px-2.5 py-1 rounded-xl border border-slate-800">
+                    <Send className="w-3 h-3 text-slate-500 shrink-0" />
+                    <span>Review invite sent via WhatsApp</span>
+                  </div>
+                )}
+
                 {/* Step progression button */}
                 <div className="flex items-center gap-2">
                   {order.status === 'PLACED' && (
@@ -343,9 +403,23 @@ export const OrdersPage: React.FC = () => {
                       size="sm"
                       variant="secondary"
                       className="flex-1 text-xs"
-                      onClick={() => updateOrderStatus(order.id, 'COMPLETED')}
+                      onClick={() => {
+                        updateOrderStatus(order.id, 'COMPLETED');
+                        info('Order Completed', `Order ${order.order_number} finished. Google review prompt triggered!`);
+                      }}
                     >
                       Complete & Clear
+                    </Button>
+                  )}
+                  {order.status === 'COMPLETED' && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="flex-1 text-xs border-amber-500/30 text-amber-300 hover:text-amber-200 hover:bg-amber-500/10"
+                      onClick={() => setReviewOrderModal(order)}
+                      leftIcon={<Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />}
+                    >
+                      {order.review_submitted ? `${order.review_rating}★ Review` : 'Google Review'}
                     </Button>
                   )}
 
@@ -476,6 +550,103 @@ export const OrdersPage: React.FC = () => {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Staff Google Review Action & Feedback Modal */}
+      <Modal
+        isOpen={Boolean(reviewOrderModal)}
+        onClose={() => setReviewOrderModal(null)}
+        title={
+          <div className="flex items-center gap-2 text-slate-100 font-['Outfit']">
+            <GoogleIcon className="w-5 h-5" />
+            <span>Google Review & Customer Reputation</span>
+          </div>
+        }
+        description={`Reputation actions for ${reviewOrderModal?.order_number} (${reviewOrderModal?.customer_name})`}
+        maxWidth="md"
+      >
+        {reviewOrderModal && (
+          <div className="space-y-4">
+            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 text-xs space-y-2">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Customer:</span>
+                <span className="font-bold text-slate-200">{reviewOrderModal.customer_name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Phone:</span>
+                <span className="font-mono text-slate-200">{reviewOrderModal.customer_phone || 'Not provided'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Order Total:</span>
+                <span className="font-bold text-amber-400 font-['Outfit']">
+                  {formatCurrency(reviewOrderModal.total_amount, activeBusiness.currency, activeBusiness.currency_symbol)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Review Status:</span>
+                <span className="font-semibold text-emerald-400">
+                  {reviewOrderModal.review_submitted
+                    ? `${reviewOrderModal.review_rating}★ Recorded (${reviewOrderModal.review_platform})`
+                    : reviewOrderModal.review_requested_at
+                    ? 'Review Invite Sent'
+                    : 'Not Yet Requested'}
+                </span>
+              </div>
+            </div>
+
+            {/* If diner already submitted a rating */}
+            {reviewOrderModal.review_submitted && (
+              <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs space-y-2">
+                <div className="flex items-center gap-1.5 text-amber-400 font-bold">
+                  <Star className="w-4 h-4 fill-amber-400" />
+                  <span>Diner Left a {reviewOrderModal.review_rating}-Star Review</span>
+                </div>
+                {reviewOrderModal.review_feedback && (
+                  <p className="text-slate-300 italic bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
+                    "{reviewOrderModal.review_feedback}"
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Actions for Staff */}
+            <div className="space-y-2.5 pt-1">
+              <Button
+                variant="primary"
+                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
+                onClick={() => handleSendWhatsAppReview(reviewOrderModal)}
+                leftIcon={<Send className="w-4 h-4" />}
+              >
+                Send Google Review Request via WhatsApp
+              </Button>
+
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="secondary"
+                  className="text-xs"
+                  onClick={() => handleCopyReviewLink(reviewOrderModal)}
+                  leftIcon={<Copy className="w-3.5 h-3.5" />}
+                >
+                  Copy Review Link
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="text-xs"
+                  onClick={() => {
+                    const url =
+                      activeBranch.google_review_url ||
+                      activeBusiness.google_review_url ||
+                      `https://www.google.com/search?q=${encodeURIComponent(`${activeBusiness.name} reviews`)}`;
+                    window.open(url, '_blank', 'noopener,noreferrer');
+                  }}
+                  leftIcon={<ExternalLink className="w-3.5 h-3.5" />}
+                >
+                  Open Google Link
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

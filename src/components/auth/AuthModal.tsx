@@ -9,7 +9,7 @@ import { useToast } from '../ui/Toast';
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialMode?: 'login' | 'signup' | 'staff-pin' | 'forgot';
+  initialMode?: 'login' | 'signup' | 'magic-link' | 'staff-pin' | 'forgot';
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -17,8 +17,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onClose,
   initialMode = 'login',
 }) => {
-  const [mode, setMode] = useState<'login' | 'signup' | 'staff-pin' | 'forgot'>(initialMode);
-  const { login, signup, staffPinLogin } = useAuth();
+  const [mode, setMode] = useState<'login' | 'signup' | 'magic-link' | 'staff-pin' | 'forgot'>(initialMode);
+  const { login, loginWithMagicLink, signup, resetPassword, staffPinLogin } = useAuth();
   const { success, error, info } = useToast();
 
   const [email, setEmail] = useState('');
@@ -40,11 +40,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           onClose();
         }
       } else if (mode === 'signup') {
-        const ok = await signup(email, password, fullName, businessName);
-        if (ok) {
-          success('Account Created!', 'Welcome to CafeOS. Your business account is active.');
+        const res = await signup(email, password, fullName, businessName);
+        if (res.success) {
+          if (res.needsEmailConfirmation) {
+            info('Verification Email Sent by CafeOS! ✉️', res.message || 'Please check your email to activate your account.');
+          } else {
+            success('Account Created! 🚀', 'Welcome to CafeOS. Your business account is active.');
+          }
           onClose();
         }
+      } else if (mode === 'magic-link') {
+        await loginWithMagicLink(email);
+        info('Magic Link Sent by CafeOS! ✉️', `Login link dispatched to ${email}`);
+        onClose();
       } else if (mode === 'staff-pin') {
         const ok = await staffPinLogin(pin);
         if (ok) {
@@ -54,7 +62,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           error('Invalid PIN', 'The PIN entered does not match any active staff.');
         }
       } else if (mode === 'forgot') {
-        info('Reset Email Sent', `Password reset instructions sent to ${email}`);
+        await resetPassword(email);
+        info('Reset Email Sent by CafeOS! 🔑', `Password reset instructions sent to ${email}`);
         setMode('login');
       }
     } catch (err: unknown) {

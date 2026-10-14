@@ -24,6 +24,7 @@ const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then(m => ({ de
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const SuperAdminPage = lazy(() => import('./pages/SuperAdminPage').then(m => ({ default: m.SuperAdminPage })));
 const CustomerOrderingPage = lazy(() => import('./pages/CustomerOrderingPage').then(m => ({ default: m.CustomerOrderingPage })));
+const AuthPage = lazy(() => import('./pages/AuthPage').then(m => ({ default: m.AuthPage })));
 
 const PageLoadingFallback: React.FC = () => (
   <div className="flex flex-col items-center justify-center min-h-[400px] gap-3 text-slate-400 animate-in fade-in">
@@ -36,12 +37,21 @@ const PageLoadingFallback: React.FC = () => (
   </div>
 );
 
-function parseMenuRoute(): { isMenu: boolean; tableCode: string | null } {
-  if (typeof window === 'undefined') return { isMenu: false, tableCode: null };
+interface AppRouteInfo {
+  isMenu: boolean;
+  tableCode: string | null;
+  isAuth: boolean;
+  authMode: 'login' | 'signup' | 'magic-link' | 'staff-pin';
+}
 
-  const path = window.location.pathname;
+function parseAppRoute(): AppRouteInfo {
+  if (typeof window === 'undefined') {
+    return { isMenu: false, tableCode: null, isAuth: false, authMode: 'login' };
+  }
+
+  const path = window.location.pathname.toLowerCase();
   const search = new URLSearchParams(window.location.search);
-  const hash = window.location.hash;
+  const hash = window.location.hash.toLowerCase();
 
   // 1. Direct path /menu or /menu/:code
   const pathMatch = path.match(/^\/menu(?:\/([^\/?#]+))?/i);
@@ -49,6 +59,8 @@ function parseMenuRoute(): { isMenu: boolean; tableCode: string | null } {
     return {
       isMenu: true,
       tableCode: pathMatch[1] ? decodeURIComponent(pathMatch[1]) : search.get('table'),
+      isAuth: false,
+      authMode: 'login',
     };
   }
 
@@ -57,6 +69,8 @@ function parseMenuRoute(): { isMenu: boolean; tableCode: string | null } {
     return {
       isMenu: true,
       tableCode: search.get('table'),
+      isAuth: false,
+      authMode: 'login',
     };
   }
 
@@ -66,22 +80,52 @@ function parseMenuRoute(): { isMenu: boolean; tableCode: string | null } {
     return {
       isMenu: true,
       tableCode: hashMatch[1] ? decodeURIComponent(hashMatch[1]) : null,
+      isAuth: false,
+      authMode: 'login',
     };
   }
 
-  return { isMenu: false, tableCode: null };
+  // 4. Auth paths (/login, /register, /signup, /auth)
+  if (
+    path.startsWith('/register') ||
+    path.startsWith('/signup') ||
+    search.get('auth') === 'register' ||
+    hash.includes('register') ||
+    hash.includes('signup')
+  ) {
+    return { isMenu: false, tableCode: null, isAuth: true, authMode: 'signup' };
+  }
+
+  if (
+    path.startsWith('/login') ||
+    path.startsWith('/auth') ||
+    search.has('login') ||
+    hash.includes('login')
+  ) {
+    return { isMenu: false, tableCode: null, isAuth: true, authMode: 'login' };
+  }
+
+  if (
+    path.startsWith('/magic-link') ||
+    search.has('magic-link') ||
+    hash.includes('magic-link')
+  ) {
+    return { isMenu: false, tableCode: null, isAuth: true, authMode: 'magic-link' };
+  }
+
+  return { isMenu: false, tableCode: null, isAuth: false, authMode: 'login' };
 }
 
 const MainApp: React.FC = () => {
   const { isAuthenticated } = useAuth();
-  const [routeInfo, setRouteInfo] = useState<{ isMenu: boolean; tableCode: string | null }>(() => parseMenuRoute());
+  const [routeInfo, setRouteInfo] = useState<AppRouteInfo>(() => parseAppRoute());
   const [currentPage, setCurrentPage] = useState<NavigationPage>('dashboard');
   const [authModalOpen, setAuthModalOpen] = useState(false);
 
   // Listen to browser forward/backward buttons or pushState
   useEffect(() => {
     const handlePopState = () => {
-      setRouteInfo(parseMenuRoute());
+      setRouteInfo(parseAppRoute());
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -97,8 +141,8 @@ const MainApp: React.FC = () => {
             scannedTableCode={routeInfo.tableCode}
             isStandalone={true}
             onExitToAdmin={() => {
-              window.history.pushState({}, '', '/');
-              setRouteInfo({ isMenu: false, tableCode: null });
+              window.history.pushState({}, '', '/login');
+              setRouteInfo(parseAppRoute());
             }}
           />
         </Suspense>
@@ -112,10 +156,29 @@ const MainApp: React.FC = () => {
     );
   }
 
+  // When visiting /login or /register, render the standalone AuthPage
+  if (routeInfo.isAuth) {
+    return (
+      <Suspense fallback={<PageLoadingFallback />}>
+        <AuthPage
+          initialMode={routeInfo.authMode}
+          onSuccess={() => {
+            window.history.pushState({}, '', '/');
+            setRouteInfo(parseAppRoute());
+          }}
+          onBackToDashboard={() => {
+            window.history.pushState({}, '', '/');
+            setRouteInfo(parseAppRoute());
+          }}
+        />
+      </Suspense>
+    );
+  }
+
   const handleNavigate = (page: NavigationPage) => {
     if (page === 'customer-ordering') {
       window.history.pushState({}, '', '/menu');
-      setRouteInfo({ isMenu: true, tableCode: null });
+      setRouteInfo(parseAppRoute());
     } else {
       setCurrentPage(page);
     }
@@ -135,18 +198,33 @@ const MainApp: React.FC = () => {
               <div>
                 <h4 className="text-sm font-bold text-amber-300">Sandbox Preview Mode</h4>
                 <p className="text-xs text-slate-300">
-                  You are previewing CafeOS in demo mode. Sign in with owner credentials or staff PIN to manage live data.
+                  You are previewing CafeOS in demo mode. Sign in with owner credentials or register your restaurant to manage live data.
                 </p>
               </div>
             </div>
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={() => setAuthModalOpen(true)}
-              leftIcon={<Sparkles className="w-3.5 h-3.5" />}
-            >
-              Sign In / Staff PIN
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  window.history.pushState({}, '', '/login');
+                  setRouteInfo(parseAppRoute());
+                }}
+              >
+                Sign In
+              </Button>
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => {
+                  window.history.pushState({}, '', '/register');
+                  setRouteInfo(parseAppRoute());
+                }}
+                leftIcon={<Sparkles className="w-3.5 h-3.5" />}
+              >
+                Register with Email
+              </Button>
+            </div>
           </div>
         )}
 

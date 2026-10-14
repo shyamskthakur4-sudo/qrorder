@@ -59,6 +59,15 @@ interface BusinessContextType {
   // Order & Operations Handlers
   createOrder: (orderData: Partial<Order>) => Promise<Order>;
   updateOrderStatus: (orderId: string, status: OrderStatus) => void;
+  submitOrderReview: (
+    orderId: string,
+    review: {
+      rating: number;
+      feedback?: string;
+      platform?: 'GOOGLE' | 'INTERNAL';
+    }
+  ) => void;
+  markReviewRequested: (orderId: string) => void;
   updateTableStatus: (tableId: string, status: TableStatus) => void;
   createTable: (tableNumber: string, capacity: number, seatingArea: string) => RestaurantTable;
   deleteTable: (tableId: string) => void;
@@ -237,6 +246,25 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
         if (isMounted && brRes.data && brRes.data.length > 0) {
           setBranches(brRes.data);
+        }
+
+        // Auto-select the authenticated user's business and branch
+        const { data: sessionData } = await supabase.auth.getSession();
+        const curUser = sessionData?.session?.user;
+        if (isMounted && curUser) {
+          const { data: staffData } = await supabase
+            .from('staff')
+            .select('*')
+            .or(`user_id.eq.${curUser.id},email.eq.${curUser.email}`)
+            .limit(1)
+            .maybeSingle();
+
+          if (staffData && staffData.business_id) {
+            setActiveBusinessId(staffData.business_id);
+            if (staffData.branch_id) {
+              setActiveBranchId(staffData.branch_id);
+            }
+          }
         }
 
         // Fetch tables with qr_codes for active branch
@@ -751,6 +779,44 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  const submitOrderReview = (
+    orderId: string,
+    review: {
+      rating: number;
+      feedback?: string;
+      platform?: 'GOOGLE' | 'INTERNAL';
+    }
+  ) => {
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.id === orderId
+          ? {
+              ...o,
+              review_submitted: true,
+              review_rating: review.rating,
+              review_feedback: review.feedback,
+              review_platform: review.platform || 'GOOGLE',
+              updated_at: new Date().toISOString(),
+            }
+          : o
+      )
+    );
+  };
+
+  const markReviewRequested = (orderId: string) => {
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.id === orderId
+          ? {
+              ...o,
+              review_requested_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }
+          : o
+      )
+    );
+  };
+
   const updateTableStatus = (tableId: string, status: TableStatus) => {
     setTables((prev) =>
       prev.map((t) => (t.id === tableId ? { ...t, status, updated_at: new Date().toISOString() } : t))
@@ -970,6 +1036,8 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         campaigns: tenantCampaigns,
         createOrder,
         updateOrderStatus,
+        submitOrderReview,
+        markReviewRequested,
         updateTableStatus,
         createTable,
         deleteTable,

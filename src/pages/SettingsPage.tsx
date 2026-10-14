@@ -16,6 +16,11 @@ import {
   Trash2,
   Camera,
   Sparkles,
+  Star,
+  ExternalLink,
+  Eye,
+  HelpCircle,
+  Send,
 } from 'lucide-react';
 import { useBusiness } from '../context/BusinessContext';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/Card';
@@ -23,6 +28,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { useToast } from '../components/ui/Toast';
+import { GoogleIcon, GoogleReviewModal } from '../components/reviews/GoogleReviewModal';
 
 export const SettingsPage: React.FC = () => {
   const {
@@ -53,6 +59,55 @@ export const SettingsPage: React.FC = () => {
   const [serviceCharge, setServiceCharge] = useState(activeBranch.service_charge_percent.toString());
   const [openingTime, setOpeningTime] = useState(activeBranch.opening_time || '09:00');
   const [closingTime, setClosingTime] = useState(activeBranch.closing_time || '23:00');
+
+  // Google Review & Reputation Form
+  const [googleReviewUrl, setGoogleReviewUrl] = useState(
+    activeBusiness.google_review_url || activeBranch.google_review_url || ''
+  );
+  const [googlePlaceId, setGooglePlaceId] = useState(
+    activeBusiness.google_place_id || activeBranch.google_place_id || ''
+  );
+  const [enableReviewPrompt, setEnableReviewPrompt] = useState(
+    activeBusiness.enable_google_review_prompt !== false
+  );
+  const [minRatingForGoogle, setMinRatingForGoogle] = useState(
+    (activeBusiness.min_rating_for_google ?? 4).toString()
+  );
+  const [reviewRewardText, setReviewRewardText] = useState(
+    activeBusiness.review_reward_text ||
+      'Show your Google review to our staff or use code REVIEW10 for 10% off your next visit!'
+  );
+  const [reviewCouponCode, setReviewCouponCode] = useState(
+    activeBusiness.review_coupon_code || 'REVIEW10'
+  );
+  const [isPreviewReviewModalOpen, setIsPreviewReviewModalOpen] = useState(false);
+
+  const handleGenerateUrlFromPlaceId = () => {
+    if (!googlePlaceId.trim()) {
+      error('Place ID Missing', 'Please enter your Google Place ID first.');
+      return;
+    }
+    const generated = `https://search.google.com/local/writereview?placeid=${googlePlaceId.trim()}`;
+    setGoogleReviewUrl(generated);
+    success('Review Link Generated', 'Google review URL built successfully from Place ID.');
+  };
+
+  const handleSaveGoogleReviewSettings = (e: React.FormEvent) => {
+    e.preventDefault();
+    updateBusinessProfile({
+      google_review_url: googleReviewUrl.trim(),
+      google_place_id: googlePlaceId.trim(),
+      enable_google_review_prompt: enableReviewPrompt,
+      min_rating_for_google: parseInt(minRatingForGoogle, 10) || 4,
+      review_reward_text: reviewRewardText.trim(),
+      review_coupon_code: reviewCouponCode.trim(),
+    });
+    updateBranchSettings({
+      google_review_url: googleReviewUrl.trim(),
+      google_place_id: googlePlaceId.trim(),
+    });
+    success('Google Review Settings Saved', 'Automated Google review flow is live for all completed orders.');
+  };
 
   // New Branch Modal
   const [isAddBranchModalOpen, setIsAddBranchModalOpen] = useState(false);
@@ -410,6 +465,182 @@ export const SettingsPage: React.FC = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Google Review & Reputation Automation Card */}
+      <Card className="border-amber-500/20 bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950">
+        <CardHeader>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <div className="p-1.5 rounded-xl bg-slate-800 border border-slate-700">
+                  <GoogleIcon className="w-5 h-5" />
+                </div>
+                <span>Google Review & Customer Reputation Automation</span>
+              </CardTitle>
+              <CardDescription>
+                Automatically invite diners to leave 5-star Google reviews the moment their order is completed.
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setIsPreviewReviewModalOpen(true)}
+                leftIcon={<Eye className="w-4 h-4 text-amber-400" />}
+              >
+                Preview Diner Modal
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSaveGoogleReviewSettings} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Direct Review URL */}
+              <div className="space-y-1.5">
+                <Input
+                  label="Direct Google Review URL"
+                  placeholder="https://search.google.com/local/writereview?placeid=..."
+                  value={googleReviewUrl}
+                  onChange={(e) => setGoogleReviewUrl(e.target.value)}
+                  helperText="The direct 'Write a review' link for your Google Business Profile."
+                />
+                {googleReviewUrl && (
+                  <div className="pt-1">
+                    <a
+                      href={googleReviewUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300 hover:underline"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      Test Google Review Link in New Tab
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              {/* Google Place ID */}
+              <div className="space-y-1.5">
+                <div className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <Input
+                      label="Google Place ID (Optional)"
+                      placeholder="e.g. ChIJN1t_tDeuEmsRUsoyG83frY4"
+                      value={googlePlaceId}
+                      onChange={(e) => setGooglePlaceId(e.target.value)}
+                      helperText="Used to auto-generate direct links and QR codes."
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="mb-1 text-xs whitespace-nowrap"
+                    onClick={handleGenerateUrlFromPlaceId}
+                  >
+                    Build Link
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Automation Preferences */}
+            <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Auto Prompt Toggle */}
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  id="enable_review_prompt"
+                  checked={enableReviewPrompt}
+                  onChange={(e) => setEnableReviewPrompt(e.target.checked)}
+                  className="mt-1 w-4 h-4 rounded text-amber-500 focus:ring-amber-400 focus:ring-offset-slate-900 bg-slate-800 border-slate-700 cursor-pointer"
+                />
+                <label htmlFor="enable_review_prompt" className="cursor-pointer">
+                  <span className="text-xs font-bold text-slate-100 block">
+                    Trigger Prompt Upon Order Completion
+                  </span>
+                  <span className="text-[11px] text-slate-400 block mt-0.5">
+                    Automatically prompt diners on mobile QR when the order status reaches COMPLETED.
+                  </span>
+                </label>
+              </div>
+
+              {/* Min Rating Threshold */}
+              <div>
+                <label className="text-xs font-semibold text-slate-200 block mb-1">
+                  Smart Review Routing Filter
+                </label>
+                <select
+                  value={minRatingForGoogle}
+                  onChange={(e) => setMinRatingForGoogle(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="4">Route 4★ and 5★ to Google (1-3★ to private management feedback)</option>
+                  <option value="5">Route ONLY 5★ to Google (1-4★ to private management feedback)</option>
+                  <option value="1">Route ALL ratings to Google (No filter)</option>
+                </select>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Shields public reputation while routing unhappy diners directly to managers to resolve issues.
+                </p>
+              </div>
+            </div>
+
+            {/* Incentive Reward Text & Coupon */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="md:col-span-2">
+                <Input
+                  label="Diner Review Appreciation Perk"
+                  placeholder="e.g. Show your 5★ review to our server for 10% off your next visit!"
+                  value={reviewRewardText}
+                  onChange={(e) => setReviewRewardText(e.target.value)}
+                  helperText="Displayed inside the customer review modal to motivate high ratings."
+                />
+              </div>
+
+              <div>
+                <Input
+                  label="Reward Coupon Code"
+                  placeholder="REVIEW10"
+                  value={reviewCouponCode}
+                  onChange={(e) => setReviewCouponCode(e.target.value)}
+                  helperText="Auto-copyable promo code presented after reviewing."
+                />
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end gap-3 border-t border-slate-800">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setIsPreviewReviewModalOpen(true)}
+                leftIcon={<Eye className="w-4 h-4 text-amber-400" />}
+              >
+                Preview Experience
+              </Button>
+              <Button type="submit" variant="primary" leftIcon={<Save className="w-4 h-4" />}>
+                Save Google Review Settings
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* Google Review Customer Experience Preview Modal */}
+      <GoogleReviewModal
+        isOpen={isPreviewReviewModalOpen}
+        onClose={() => setIsPreviewReviewModalOpen(false)}
+        previewMode={true}
+        business={{
+          ...activeBusiness,
+          google_review_url: googleReviewUrl,
+          google_place_id: googlePlaceId,
+          min_rating_for_google: parseInt(minRatingForGoogle, 10) || 4,
+          review_reward_text: reviewRewardText,
+          review_coupon_code: reviewCouponCode,
+        }}
+        branch={activeBranch}
+      />
 
       {/* Add New Branch Modal */}
       <Modal
