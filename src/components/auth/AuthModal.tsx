@@ -74,17 +74,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  const handleQuickDemoLogin = async (demoEmail: string) => {
-    setIsLoading(true);
-    try {
-      await login(demoEmail, 'password123');
-      success('Logged In as Demo User', `Signed in as ${demoEmail}`);
-      onClose();
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   return (
     <Modal
       isOpen={isOpen}
@@ -114,7 +103,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <>
             <Input
               label="Full Name"
-              placeholder="e.g. Vikram Mehta"
+              placeholder="e.g. Shyam Raghuwanshi"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               leftIcon={<User className="w-4 h-4" />}
@@ -122,7 +111,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             />
             <Input
               label="Business / Cafe Name"
-              placeholder="e.g. Roast & Brew Artisan Cafe"
+              placeholder="e.g. Royal Cafe & Restro"
               value={businessName}
               onChange={(e) => setBusinessName(e.target.value)}
               leftIcon={<Sparkles className="w-4 h-4 text-amber-400" />}
@@ -135,7 +124,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <Input
             label="Email Address"
             type="email"
-            placeholder="owner@roastbrew.com"
+            placeholder="owner@mycafe.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             leftIcon={<Mail className="w-4 h-4" />}
@@ -169,10 +158,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               required
             />
             <p className="text-[11px] text-slate-400 mt-2">
-              Tip: Use demo PINs: <code className="text-amber-300">1234</code> (Owner),{' '}
-              <code className="text-amber-300">4321</code> (Manager),{' '}
-              <code className="text-amber-300">5555</code> (Kitchen),{' '}
-              <code className="text-amber-300">9999</code> (Cashier)
+              Enter your 4-digit staff PIN code configured in Staff Settings.
             </p>
           </div>
         )}
@@ -195,47 +181,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           {mode === 'staff-pin' && 'Verify PIN & Enter'}
           {mode === 'forgot' && 'Send Reset Link'}
         </Button>
-
-        {/* Quick Demo Login Preset Buttons */}
-        <div className="pt-4 border-t border-slate-800">
-          <p className="text-xs text-slate-400 font-semibold mb-2 flex items-center gap-1.5">
-            <ShieldCheck className="w-3.5 h-3.5 text-amber-400" /> Quick One-Click Demo Logins:
-          </p>
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <button
-              type="button"
-              onClick={() => handleQuickDemoLogin('owner@roastbrew.com')}
-              className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 text-left transition-all"
-            >
-              <strong className="block text-amber-300">Cafe Owner</strong>
-              <span className="text-[10px] text-slate-400">Full Access</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickDemoLogin('chef@roastbrew.com')}
-              className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 text-left transition-all"
-            >
-              <strong className="block text-emerald-300">Kitchen Chef</strong>
-              <span className="text-[10px] text-slate-400">KDS Interface</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickDemoLogin('cashier@roastbrew.com')}
-              className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 text-left transition-all"
-            >
-              <strong className="block text-sky-300">Cashier POS</strong>
-              <span className="text-[10px] text-slate-400">Billing & Orders</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickDemoLogin('admin@cafeos.app')}
-              className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-purple-500/30 text-left transition-all"
-            >
-              <strong className="block text-purple-300">Super Admin</strong>
-              <span className="text-[10px] text-slate-400">Platform SaaS</span>
-            </button>
-          </div>
-        </div>
 
         {/* Footer Mode Switchers */}
         <div className="pt-2 text-center text-xs text-slate-400 space-y-1">

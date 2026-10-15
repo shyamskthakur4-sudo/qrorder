@@ -252,28 +252,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </button>
               ))}
 
-              <div className="pt-2 mt-2 border-t border-slate-800">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1">
-                  Switch Business (Multi-Tenant)
-                </p>
-                {allBusinesses.map((b) => (
-                  <button
-                    key={b.id}
-                    onClick={() => {
-                      switchBusiness(b.id);
-                      setShowBranchMenu(false);
-                    }}
-                    className={cn(
-                      'w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between transition-colors cursor-pointer',
-                      b.id === activeBusiness.id
-                        ? 'text-amber-400 font-bold'
-                        : 'text-slate-400 hover:bg-slate-800'
-                    )}
-                  >
-                    <span className="truncate">{b.name}</span>
-                  </button>
-                ))}
-              </div>
+              {allBusinesses.length > 1 && (
+                <div className="pt-2 mt-2 border-t border-slate-800">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1">
+                    Switch Business
+                  </p>
+                  {allBusinesses.map((b) => (
+                    <button
+                      key={b.id}
+                      onClick={() => {
+                        switchBusiness(b.id);
+                        setShowBranchMenu(false);
+                      }}
+                      className={cn(
+                        'w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between transition-colors cursor-pointer',
+                        b.id === activeBusiness.id
+                          ? 'text-amber-400 font-bold'
+                          : 'text-slate-400 hover:bg-slate-800'
+                      )}
+                    >
+                      <span className="truncate">{b.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

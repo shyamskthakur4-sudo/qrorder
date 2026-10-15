@@ -33,26 +33,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<UserProfile | null>(() => {
     const saved = localStorage.getItem('cafeos_user');
     if (saved) {
-      try { return JSON.parse(saved); } catch {}
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && !parsed.email?.includes('roastbrew.com')) {
+          return parsed;
+        }
+      } catch {}
     }
-    // Default demo user is the Owner
-    return {
-      id: 'user-owner-1',
-      email: 'owner@roastbrew.com',
-      full_name: 'Vikram Mehta',
-      phone: '+91 98765 43210',
-      is_superadmin: false,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
+    return null;
   });
 
   const [staff, setStaff] = useState<Staff | null>(() => {
     const saved = localStorage.getItem('cafeos_staff');
     if (saved) {
-      try { return JSON.parse(saved); } catch {}
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && !parsed.email?.includes('roastbrew.com')) {
+          return parsed;
+        }
+      } catch {}
     }
-    return INITIAL_STAFF[0]; // Owner
+    return null;
   });
 
   const [role, setRole] = useState<StaffRole>(() => {
@@ -85,31 +86,64 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     if (!isSupabaseConfigured) return;
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
-        setUser({
+        const profile: UserProfile = {
           id: session.user.id,
           email: session.user.email || '',
-          full_name: session.user.user_metadata?.full_name || 'Owner',
+          full_name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Owner',
           created_at: session.user.created_at,
           updated_at: session.user.created_at,
-        });
+        };
+        setUser(profile);
+
+        try {
+          const { data: st } = await supabase
+            .from('staff')
+            .select('*')
+            .or(`user_id.eq.${session.user.id},email.eq.${session.user.email}`)
+            .limit(1)
+            .maybeSingle();
+          if (st) {
+            setStaff(st);
+            setRole(st.role as StaffRole);
+          }
+        } catch {}
+      } else {
+        setUser(null);
+        setStaff(null);
       }
     });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
-        setUser({
+        const profile: UserProfile = {
           id: session.user.id,
           email: session.user.email || '',
-          full_name: session.user.user_metadata?.full_name || 'Owner',
+          full_name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Owner',
           created_at: session.user.created_at,
           updated_at: session.user.created_at,
-        });
+        };
+        setUser(profile);
+
+        try {
+          const { data: st } = await supabase
+            .from('staff')
+            .select('*')
+            .or(`user_id.eq.${session.user.id},email.eq.${session.user.email}`)
+            .limit(1)
+            .maybeSingle();
+          if (st) {
+            setStaff(st);
+            setRole(st.role as StaffRole);
+          }
+        } catch {}
       } else {
-        // If logged out from Supabase
+        setUser(null);
+        setStaff(null);
+        setRole('OWNER');
       }
     });
 
@@ -368,6 +402,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('cafeos_user');
     localStorage.removeItem('cafeos_staff');
     localStorage.removeItem('cafeos_role');
+    localStorage.removeItem('cafeos_businesses');
+    localStorage.removeItem('cafeos_branches');
+    localStorage.removeItem('cafeos_active_biz_id');
+    localStorage.removeItem('cafeos_active_branch_id');
+    localStorage.removeItem('cafeos_tables');
+    localStorage.removeItem('cafeos_orders');
+    localStorage.removeItem('cafeos_categories');
+    localStorage.removeItem('cafeos_menu_items');
   };
 
   const switchRolePreview = (newRole: StaffRole) => {

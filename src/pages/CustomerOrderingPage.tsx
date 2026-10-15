@@ -1214,62 +1214,64 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
               </div>
             </div>
 
-            {/* Quick Demo Simulator Bar to test completion & Google review immediately */}
-            <div className="p-2.5 rounded-2xl bg-slate-950 border border-slate-800 text-left space-y-1.5">
-              <span className="text-[10px] uppercase tracking-wider font-bold text-slate-500 block">
-                ⚡ Demo Stage Controller:
-              </span>
-              <div className="grid grid-cols-4 gap-1 text-[10px]">
-                <button
-                  type="button"
-                  onClick={() => updateOrderStatus(currentPlacedOrder.id, 'PREPARING')}
-                  className={`py-1 rounded-lg border transition-colors cursor-pointer ${
-                    currentPlacedOrder.status === 'PREPARING'
-                      ? 'bg-amber-500/20 border-amber-500 text-amber-300 font-bold'
-                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  🍳 Prep
-                </button>
-                <button
-                  type="button"
-                  onClick={() => updateOrderStatus(currentPlacedOrder.id, 'READY')}
-                  className={`py-1 rounded-lg border transition-colors cursor-pointer ${
-                    currentPlacedOrder.status === 'READY'
-                      ? 'bg-purple-500/20 border-purple-500 text-purple-300 font-bold'
-                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  📦 Ready
-                </button>
-                <button
-                  type="button"
-                  onClick={() => updateOrderStatus(currentPlacedOrder.id, 'SERVED')}
-                  className={`py-1 rounded-lg border transition-colors cursor-pointer ${
-                    currentPlacedOrder.status === 'SERVED'
-                      ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 font-bold'
-                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  🍽️ Served
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    updateOrderStatus(currentPlacedOrder.id, 'COMPLETED');
-                    setIsReviewModalOpen(true);
-                  }}
-                  className={`py-1 rounded-lg border transition-colors cursor-pointer font-bold ${
-                    currentPlacedOrder.status === 'COMPLETED'
-                      ? 'bg-amber-500 border-amber-400 text-slate-950'
-                      : 'bg-amber-500/20 border-amber-500/50 text-amber-300 hover:bg-amber-500/30'
-                  }`}
-                  title="Mark order COMPLETED and trigger Google Review flow"
-                >
-                  🎉 Complete
-                </button>
+            {/* Quick Demo Simulator Bar - only in preview inside admin dashboard, never on live customer QR */}
+            {!isStandalone && (
+              <div className="p-2.5 rounded-2xl bg-slate-950 border border-slate-800 text-left space-y-1.5">
+                <span className="text-[10px] uppercase tracking-wider font-bold text-slate-500 block">
+                  ⚡ Demo Stage Controller:
+                </span>
+                <div className="grid grid-cols-4 gap-1 text-[10px]">
+                  <button
+                    type="button"
+                    onClick={() => updateOrderStatus(currentPlacedOrder.id, 'PREPARING')}
+                    className={`py-1 rounded-lg border transition-colors cursor-pointer ${
+                      currentPlacedOrder.status === 'PREPARING'
+                        ? 'bg-amber-500/20 border-amber-500 text-amber-300 font-bold'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    🍳 Prep
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateOrderStatus(currentPlacedOrder.id, 'READY')}
+                    className={`py-1 rounded-lg border transition-colors cursor-pointer ${
+                      currentPlacedOrder.status === 'READY'
+                        ? 'bg-purple-500/20 border-purple-500 text-purple-300 font-bold'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    📦 Ready
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateOrderStatus(currentPlacedOrder.id, 'SERVED')}
+                    className={`py-1 rounded-lg border transition-colors cursor-pointer ${
+                      currentPlacedOrder.status === 'SERVED'
+                        ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 font-bold'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    🍽️ Served
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      updateOrderStatus(currentPlacedOrder.id, 'COMPLETED');
+                      setIsReviewModalOpen(true);
+                    }}
+                    className={`py-1 rounded-lg border transition-colors cursor-pointer font-bold ${
+                      currentPlacedOrder.status === 'COMPLETED'
+                        ? 'bg-amber-500 border-amber-400 text-slate-950'
+                        : 'bg-amber-500/20 border-amber-500/50 text-amber-300 hover:bg-amber-500/30'
+                    }`}
+                    title="Mark order COMPLETED and trigger Google Review flow"
+                  >
+                    🎉 Complete
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="flex gap-2">
               <Button

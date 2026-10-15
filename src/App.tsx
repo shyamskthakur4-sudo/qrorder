@@ -190,15 +190,15 @@ const MainApp: React.FC = () => {
         currentPage={currentPage}
         onNavigate={handleNavigate}
       >
-        {/* Guest Preview Notification Banner if logged out */}
+        {/* Guest Notification Banner if logged out */}
         {!isAuthenticated && (
-          <div className="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="mb-6 p-4 rounded-2xl bg-slate-900 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
             <div className="flex items-center gap-3">
               <Lock className="w-5 h-5 text-amber-400 shrink-0" />
               <div>
-                <h4 className="text-sm font-bold text-amber-300">Sandbox Preview Mode</h4>
+                <h4 className="text-sm font-bold text-amber-300">Welcome to CafeOS</h4>
                 <p className="text-xs text-slate-300">
-                  You are previewing CafeOS in demo mode. Sign in with owner credentials or register your restaurant to manage live data.
+                  Sign in or register your restaurant with your email to manage live menu, tables, and orders.
                 </p>
               </div>
             </div>
@@ -222,7 +222,7 @@ const MainApp: React.FC = () => {
                 }}
                 leftIcon={<Sparkles className="w-3.5 h-3.5" />}
               >
-                Register with Email
+                Register Cafe
               </Button>
             </div>
           </div>

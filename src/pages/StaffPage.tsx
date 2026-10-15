@@ -21,6 +21,7 @@ import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { useToast } from '../components/ui/Toast';
 import { generateUUID } from '../lib/utils';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 export const StaffPage: React.FC = () => {
   const { activeBusiness, activeBranch } = useBusiness();
@@ -29,6 +30,23 @@ export const StaffPage: React.FC = () => {
 
   const [staffList, setStaffList] = useState<Staff[]>(INITIAL_STAFF);
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
+
+  React.useEffect(() => {
+    if (!isSupabaseConfigured || !activeBusiness?.id) return;
+    let isMounted = true;
+    supabase
+      .from('staff')
+      .select('*')
+      .eq('business_id', activeBusiness.id)
+      .then(({ data }) => {
+        if (isMounted && data && data.length > 0) {
+          setStaffList(data);
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [activeBusiness?.id]);
 
   // New staff form
   const [fullName, setFullName] = useState('');

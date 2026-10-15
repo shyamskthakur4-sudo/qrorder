@@ -148,17 +148,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     }
   };
 
-  const handleQuickDemoLogin = async (demoEmail: string) => {
-    setIsLoading(true);
-    try {
-      await login(demoEmail, 'password123');
-      success('Demo Session Started', `Logged in as ${demoEmail}`);
-      onSuccess?.();
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   return (
     <div className="min-h-screen w-full bg-slate-950 text-slate-100 flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
       {/* Background ambient lighting */}
@@ -307,7 +296,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 <>
                   <Input
                     label="Full Name / Owner Name"
-                    placeholder="e.g. Vikram Mehta"
+                    placeholder="e.g. Shyam Raghuwanshi"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     leftIcon={<User className="w-4 h-4" />}
@@ -390,10 +379,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                     required
                   />
                   <p className="text-[11px] text-slate-400 mt-2 text-center">
-                    Demo PINs: <code className="text-amber-300">1234</code> (Owner),{' '}
-                    <code className="text-amber-300">4321</code> (Manager),{' '}
-                    <code className="text-amber-300">5555</code> (Kitchen),{' '}
-                    <code className="text-amber-300">9999</code> (Cashier)
+                    Enter the 4-digit PIN configured in your CafeOS Staff Settings.
                   </p>
                 </div>
               )}
@@ -441,31 +427,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 </p>
               )}
             </form>
-
-            {/* Quick Demo Logins for Fast Review */}
-            <div className="mt-6 pt-5 border-t border-slate-800">
-              <p className="text-xs text-slate-400 font-semibold mb-2.5 flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-amber-400" /> 1-Click Sandbox Test Logins:
-              </p>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <button
-                  type="button"
-                  onClick={() => handleQuickDemoLogin('owner@roastbrew.com')}
-                  className="px-3 py-2 rounded-xl bg-slate-950 hover:bg-slate-800/80 text-slate-200 border border-slate-800 hover:border-amber-500/40 text-left transition-all cursor-pointer"
-                >
-                  <strong className="block text-amber-300 font-bold">Cafe Owner</strong>
-                  <span className="text-[10px] text-slate-400">Full Dashboard</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickDemoLogin('chef@roastbrew.com')}
-                  className="px-3 py-2 rounded-xl bg-slate-950 hover:bg-slate-800/80 text-slate-200 border border-slate-800 hover:border-emerald-500/40 text-left transition-all cursor-pointer"
-                >
-                  <strong className="block text-emerald-300 font-bold">Kitchen Chef</strong>
-                  <span className="text-[10px] text-slate-400">Live KDS Screen</span>
-                </button>
-              </div>
-            </div>
 
             {/* Bottom Footer Switchers */}
             <div className="mt-5 text-center text-xs text-slate-400 space-y-2">

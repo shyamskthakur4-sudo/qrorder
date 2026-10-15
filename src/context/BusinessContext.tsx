@@ -95,74 +95,130 @@ interface BusinessContextType {
 
 const BusinessContext = createContext<BusinessContextType | undefined>(undefined);
 
+// Helper to detect and purge stale mock demo data from previous sessions
+const isDemoData = (raw: string | null) => {
+  if (!raw) return false;
+  const s = raw.toLowerCase();
+  return (
+    s.includes('roast & brew') ||
+    s.includes('roastbrew') ||
+    s.includes('bella italia') ||
+    s.includes('b2222222-2222-2222-2222-222222222222') ||
+    s.includes('indiranagar flagship') ||
+    s.includes('#rb-108')
+  );
+};
+
 export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Businesses
   const [businesses, setBusinesses] = useState<Business[]>(() => {
     const saved = localStorage.getItem('cafeos_businesses');
-    return saved ? JSON.parse(saved) : INITIAL_BUSINESSES;
+    if (saved && !isDemoData(saved)) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch {}
+    }
+    return INITIAL_BUSINESSES;
   });
 
   const [activeBusinessId, setActiveBusinessId] = useState<string>(() => {
     const saved = localStorage.getItem('cafeos_active_biz_id');
-    return saved || INITIAL_BUSINESSES[0].id;
+    if (saved && saved !== 'b2222222-2222-2222-2222-222222222222') {
+      return saved;
+    }
+    return INITIAL_BUSINESSES[0].id;
   });
 
   // Branches
   const [branches, setBranches] = useState<Branch[]>(() => {
     const saved = localStorage.getItem('cafeos_branches');
-    return saved ? JSON.parse(saved) : INITIAL_BRANCHES;
+    if (saved && !isDemoData(saved)) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch {}
+    }
+    return INITIAL_BRANCHES;
   });
 
   const [activeBranchId, setActiveBranchId] = useState<string>(() => {
     const saved = localStorage.getItem('cafeos_active_branch_id');
-    return saved || INITIAL_BRANCHES[0].id;
+    if (saved && !saved.includes('ba222222') && !saved.includes('ba333333')) {
+      return saved;
+    }
+    return INITIAL_BRANCHES[0].id;
   });
 
   // Tables
   const [tables, setTables] = useState<RestaurantTable[]>(() => {
     const saved = localStorage.getItem('cafeos_tables');
-    return saved ? JSON.parse(saved) : INITIAL_TABLES;
+    if (saved && !isDemoData(saved)) {
+      try { return JSON.parse(saved); } catch {}
+    }
+    return INITIAL_TABLES;
   });
 
   // Orders
   const [orders, setOrders] = useState<Order[]>(() => {
     const saved = localStorage.getItem('cafeos_orders');
-    return saved ? JSON.parse(saved) : INITIAL_ORDERS;
+    if (saved && !isDemoData(saved)) {
+      try { return JSON.parse(saved); } catch {}
+    }
+    return INITIAL_ORDERS;
   });
 
   // Menu
   const [categories, setCategories] = useState<MenuCategory[]>(() => {
     const saved = localStorage.getItem('cafeos_categories');
-    return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
+    if (saved && !isDemoData(saved)) {
+      try { return JSON.parse(saved); } catch {}
+    }
+    return INITIAL_CATEGORIES;
   });
 
   const [menuItems, setMenuItems] = useState<MenuItem[]>(() => {
     const saved = localStorage.getItem('cafeos_menu_items');
-    return saved ? JSON.parse(saved) : INITIAL_MENU_ITEMS;
+    if (saved && !isDemoData(saved)) {
+      try { return JSON.parse(saved); } catch {}
+    }
+    return INITIAL_MENU_ITEMS;
   });
 
   // CRM & Loyalty
   const [customers, setCustomers] = useState<Customer[]>(() => {
     const saved = localStorage.getItem('cafeos_customers');
-    return saved ? JSON.parse(saved) : INITIAL_CUSTOMERS;
+    if (saved && !isDemoData(saved)) {
+      try { return JSON.parse(saved); } catch {}
+    }
+    return INITIAL_CUSTOMERS;
   });
 
   // Coupons
   const [coupons, setCoupons] = useState<Coupon[]>(() => {
     const saved = localStorage.getItem('cafeos_coupons');
-    return saved ? JSON.parse(saved) : INITIAL_COUPONS;
+    if (saved && !isDemoData(saved)) {
+      try { return JSON.parse(saved); } catch {}
+    }
+    return INITIAL_COUPONS;
   });
 
   // Inventory
   const [inventory, setInventory] = useState<InventoryItem[]>(() => {
     const saved = localStorage.getItem('cafeos_inventory');
-    return saved ? JSON.parse(saved) : INITIAL_INVENTORY;
+    if (saved && !isDemoData(saved)) {
+      try { return JSON.parse(saved); } catch {}
+    }
+    return INITIAL_INVENTORY;
   });
 
   // Marketing Campaigns
   const [campaigns, setCampaigns] = useState<Campaign[]>(() => {
     const saved = localStorage.getItem('cafeos_campaigns');
-    return saved ? JSON.parse(saved) : INITIAL_CAMPAIGNS;
+    if (saved && !isDemoData(saved)) {
+      try { return JSON.parse(saved); } catch {}
+    }
+    return INITIAL_CAMPAIGNS;
   });
 
   // Subscriptions (Super Admin)
@@ -235,34 +291,33 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     let isMounted = true;
     const fetchCloudData = async () => {
       try {
-        // Fetch businesses & branches
-        const [bizRes, brRes] = await Promise.all([
-          supabase.from('businesses').select('*'),
-          supabase.from('branches').select('*'),
-        ]);
-
-        if (isMounted && bizRes.data && bizRes.data.length > 0) {
-          setBusinesses(bizRes.data);
-        }
-        if (isMounted && brRes.data && brRes.data.length > 0) {
-          setBranches(brRes.data);
-        }
-
         // Auto-select the authenticated user's business and branch
         const { data: sessionData } = await supabase.auth.getSession();
         const curUser = sessionData?.session?.user;
-        if (isMounted && curUser) {
-          const { data: staffData } = await supabase
+
+        if (curUser) {
+          // Fetch only the business(es) this user owns or is staff of
+          const { data: staffList } = await supabase
             .from('staff')
             .select('*')
-            .or(`user_id.eq.${curUser.id},email.eq.${curUser.email}`)
-            .limit(1)
-            .maybeSingle();
+            .or(`user_id.eq.${curUser.id},email.eq.${curUser.email}`);
 
-          if (staffData && staffData.business_id) {
-            setActiveBusinessId(staffData.business_id);
-            if (staffData.branch_id) {
-              setActiveBranchId(staffData.branch_id);
+          if (isMounted && staffList && staffList.length > 0) {
+            const userBizIds = Array.from(new Set(staffList.map((s: any) => s.business_id).filter(Boolean)));
+            const [bizRes, brRes] = await Promise.all([
+              supabase.from('businesses').select('*').in('id', userBizIds),
+              supabase.from('branches').select('*').in('business_id', userBizIds),
+            ]);
+
+            if (isMounted && bizRes.data && bizRes.data.length > 0) {
+              setBusinesses(bizRes.data);
+              setActiveBusinessId(staffList[0].business_id);
+            }
+            if (isMounted && brRes.data && brRes.data.length > 0) {
+              setBranches(brRes.data);
+              if (staffList[0].branch_id) {
+                setActiveBranchId(staffList[0].branch_id);
+              }
             }
           }
         }
