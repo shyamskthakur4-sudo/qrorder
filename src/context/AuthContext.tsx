@@ -16,10 +16,14 @@ export interface AuthContextType {
   role: StaffRole;
   isAuthenticated: boolean;
   isLoading: boolean;
+  isPasswordRecovery: boolean;
   login: (email: string, password?: string) => Promise<boolean>;
   loginWithMagicLink: (email: string) => Promise<boolean>;
   signup: (email: string, password?: string, fullName?: string, businessName?: string) => Promise<SignupResult>;
   resetPassword: (email: string) => Promise<boolean>;
+  updatePassword: (newPassword: string) => Promise<boolean>;
+  verifyRecoveryOtp: (email: string, token: string) => Promise<boolean>;
+  clearPasswordRecoveryState: () => void;
   resendConfirmationEmail: (email: string) => Promise<boolean>;
   staffPinLogin: (pin: string, branchId?: string) => Promise<boolean>;
   logout: () => Promise<void>;
@@ -62,6 +66,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [isLoading, setIsLoading] = useState(false);
 
+  // Recovery mode state (true when user arrived via password reset email or reset-password URL)
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const hash = window.location.hash || '';
+    const search = window.location.search || '';
+    const path = window.location.pathname || '';
+    return (
+      hash.includes('type=recovery') ||
+      search.includes('type=recovery') ||
+      path.includes('reset-password') ||
+      path.includes('update-password')
+    );
+  });
+
   useEffect(() => {
     if (user) {
       localStorage.setItem('cafeos_user', JSON.stringify(user));
@@ -82,9 +100,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('cafeos_role', role);
   }, [role]);
 
-  // Check Supabase session if configured
+  // Check Supabase session and recovery flags if configured
   useEffect(() => {
     if (!isSupabaseConfigured) return;
+
+    // Check URL parameters for recovery mode and handle PKCE code exchange
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash || '';
+      const search = window.location.search || '';
+      const path = window.location.pathname || '';
+      const params = new URLSearchParams(search);
+      const code = params.get('code');
+
+      if (
+        hash.includes('type=recovery') ||
+        search.includes('type=recovery') ||
+        params.get('type') === 'recovery' ||
+        path.includes('reset-password') ||
+        path.includes('update-password')
+      ) {
+        setIsPasswordRecovery(true);
+      }
+
+      if (code) {
+        supabase.auth.exchangeCodeForSession(code).then(({ data, error }) => {
+          if (!error && data?.session) {
+            if (
+              path.includes('reset-password') ||
+              params.get('type') === 'recovery' ||
+              hash.includes('type=recovery')
+            ) {
+              setIsPasswordRecovery(true);
+            }
+          }
+        }).catch(() => {});
+      }
+    }
 
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
@@ -117,7 +168,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsPasswordRecovery(true);
+      }
+
       if (session?.user) {
         const profile: UserProfile = {
           id: session.user.id,
@@ -338,13 +393,63 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       if (isSupabaseConfigured) {
         const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
-          redirectTo: `${window.location.origin}/`,
+          redirectTo: `${window.location.origin}/reset-password`,
         });
         if (error) throw error;
       }
       return true;
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const updatePassword = async (newPassword: string): Promise<boolean> => {
+    setIsLoading(true);
+    try {
+      if (isSupabaseConfigured) {
+        const { error } = await supabase.auth.updateUser({
+          password: newPassword,
+        });
+        if (error) throw error;
+      }
+      setIsPasswordRecovery(false);
+      if (typeof window !== 'undefined' && window.history.replaceState) {
+        window.history.replaceState({}, '', '/');
+      }
+      return true;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const verifyRecoveryOtp = async (email: string, token: string): Promise<boolean> => {
+    setIsLoading(true);
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanToken = token.trim();
+    try {
+      if (isSupabaseConfigured) {
+        const { data, error } = await supabase.auth.verifyOtp({
+          email: cleanEmail,
+          token: cleanToken,
+          type: 'recovery',
+        });
+        if (error) throw error;
+        if (data?.user) {
+          setIsPasswordRecovery(true);
+          return true;
+        }
+      }
+      setIsPasswordRecovery(true);
+      return true;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const clearPasswordRecoveryState = () => {
+    setIsPasswordRecovery(false);
+    if (typeof window !== 'undefined' && window.history.replaceState) {
+      window.history.replaceState({}, '', '/login');
     }
   };
 
@@ -451,12 +556,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         staff,
         role,
-        isAuthenticated: Boolean(user),
+        isAuthenticated: Boolean(user) && !isPasswordRecovery,
         isLoading,
+        isPasswordRecovery,
         login,
         loginWithMagicLink,
         signup,
         resetPassword,
+        updatePassword,
+        verifyRecoveryOtp,
+        clearPasswordRecoveryState,
         resendConfirmationEmail,
         staffPinLogin,
         logout,

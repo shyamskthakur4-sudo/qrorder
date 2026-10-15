@@ -41,7 +41,7 @@ interface AppRouteInfo {
   isMenu: boolean;
   tableCode: string | null;
   isAuth: boolean;
-  authMode: 'login' | 'signup' | 'magic-link' | 'staff-pin';
+  authMode: 'login' | 'signup' | 'magic-link' | 'staff-pin' | 'forgot' | 'reset-password';
 }
 
 function parseAppRoute(): AppRouteInfo {
@@ -85,7 +85,28 @@ function parseAppRoute(): AppRouteInfo {
     };
   }
 
-  // 4. Auth paths (/login, /register, /signup, /auth)
+  // 4. Password Recovery paths (/reset-password, /update-password, type=recovery in hash or query)
+  if (
+    path.startsWith('/reset-password') ||
+    path.startsWith('/update-password') ||
+    search.get('type') === 'recovery' ||
+    search.has('reset-password') ||
+    hash.includes('type=recovery') ||
+    hash.includes('reset-password')
+  ) {
+    return { isMenu: false, tableCode: null, isAuth: true, authMode: 'reset-password' };
+  }
+
+  // 5. Forgot Password path (/forgot, /forgot-password)
+  if (
+    path.startsWith('/forgot') ||
+    search.has('forgot') ||
+    hash.includes('forgot')
+  ) {
+    return { isMenu: false, tableCode: null, isAuth: true, authMode: 'forgot' };
+  }
+
+  // 6. Auth paths (/login, /register, /signup, /auth)
   if (
     path.startsWith('/register') ||
     path.startsWith('/signup') ||
@@ -117,7 +138,7 @@ function parseAppRoute(): AppRouteInfo {
 }
 
 const MainApp: React.FC = () => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isPasswordRecovery } = useAuth();
   const [routeInfo, setRouteInfo] = useState<AppRouteInfo>(() => parseAppRoute());
   const [currentPage, setCurrentPage] = useState<NavigationPage>('dashboard');
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -130,6 +151,13 @@ const MainApp: React.FC = () => {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  // When Supabase signals password recovery, immediately route view to reset-password
+  useEffect(() => {
+    if (isPasswordRecovery && routeInfo.authMode !== 'reset-password') {
+      setRouteInfo({ isMenu: false, tableCode: null, isAuth: true, authMode: 'reset-password' });
+    }
+  }, [isPasswordRecovery, routeInfo.authMode]);
 
   // When visiting /menu or scanning table QR, render ONLY the standalone Customer Menu
   // Do NOT render admin DashboardLayout, sidebar, topbar, or demo preview banners!
@@ -156,12 +184,12 @@ const MainApp: React.FC = () => {
     );
   }
 
-  // When visiting /login or /register, render the standalone AuthPage
-  if (routeInfo.isAuth) {
+  // When visiting /login, /register, /forgot, or when in password recovery mode, render standalone AuthPage
+  if (routeInfo.isAuth || isPasswordRecovery) {
     return (
       <Suspense fallback={<PageLoadingFallback />}>
         <AuthPage
-          initialMode={routeInfo.authMode}
+          initialMode={isPasswordRecovery ? 'reset-password' : routeInfo.authMode}
           onSuccess={() => {
             window.history.pushState({}, '', '/');
             setRouteInfo(parseAppRoute());

@@ -21,7 +21,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 
 interface AuthPageProps {
-  initialMode?: 'login' | 'signup' | 'magic-link' | 'staff-pin';
+  initialMode?: 'login' | 'signup' | 'magic-link' | 'staff-pin' | 'forgot' | 'reset-password';
   onSuccess?: () => void;
   onBackToDashboard?: () => void;
 }
@@ -31,8 +31,18 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   onSuccess,
   onBackToDashboard,
 }) => {
-  const [mode, setMode] = useState<'login' | 'signup' | 'magic-link' | 'staff-pin' | 'forgot'>(initialMode);
-  const { login, loginWithMagicLink, signup, resetPassword, resendConfirmationEmail, staffPinLogin } = useAuth();
+  const [mode, setMode] = useState<'login' | 'signup' | 'magic-link' | 'staff-pin' | 'forgot' | 'reset-password'>(initialMode);
+  const {
+    login,
+    loginWithMagicLink,
+    signup,
+    resetPassword,
+    updatePassword,
+    verifyRecoveryOtp,
+    clearPasswordRecoveryState,
+    resendConfirmationEmail,
+    staffPinLogin,
+  } = useAuth();
   const { success, error, info } = useToast();
 
   // Form Fields
@@ -42,8 +52,16 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   const [fullName, setFullName] = useState('');
   const [businessName, setBusinessName] = useState('');
   const [pin, setPin] = useState('');
+  const [recoveryCode, setRecoveryCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Sync initialMode changes
+  React.useEffect(() => {
+    if (initialMode) {
+      setMode(initialMode);
+    }
+  }, [initialMode]);
 
   // Email Confirmation Sent state
   const [emailSentData, setEmailSentData] = useState<{
@@ -101,6 +119,23 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         await resetPassword(email);
         setEmailSentData({ type: 'reset', email });
         info('Reset Email Sent by CafeOS! 🔑', `Password reset instructions sent to ${email}`);
+      } else if (mode === 'reset-password') {
+        if (password.length < 6) {
+          error('Password Too Short', 'Please choose a password with at least 6 characters.');
+          return;
+        }
+        if (password !== confirmPassword) {
+          error('Passwords Do Not Match', 'Please ensure both password fields match.');
+          return;
+        }
+        const ok = await updatePassword(password);
+        if (ok) {
+          success('Password Updated! 🎉', 'Your new password is now active. Welcome to CafeOS!');
+          clearPasswordRecoveryState();
+          onSuccess?.();
+        } else {
+          error('Update Failed', 'Failed to update your password. Please request a new recovery link.');
+        }
       } else if (mode === 'staff-pin') {
         const ok = await staffPinLogin(pin);
         if (ok) {
@@ -113,6 +148,47 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     } catch (err: unknown) {
       const errObj = err as Error;
       error('Authentication Error', errObj?.message || 'Failed to authenticate');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDirectOtpReset = async () => {
+    if (!emailSentData?.email) {
+      error('Missing Email', 'Email address is missing.');
+      return;
+    }
+    const cleanToken = recoveryCode.trim();
+    if (!cleanToken) {
+      error('Missing Code', 'Please enter the 6-digit verification code from your email.');
+      return;
+    }
+    if (password.length < 6) {
+      error('Password Too Short', 'Please choose a password with at least 6 characters.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      error('Passwords Do Not Match', 'Please ensure both password fields match.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const verified = await verifyRecoveryOtp(emailSentData.email, cleanToken);
+      if (verified) {
+        const updated = await updatePassword(password);
+        if (updated) {
+          success('Password Updated! 🎉', 'Your new password is now set and you are signed in.');
+          setEmailSentData(null);
+          clearPasswordRecoveryState();
+          onSuccess?.();
+          return;
+        }
+      }
+      error('Verification Failed', 'Could not verify the reset code. Please check the code or use the link in your email.');
+    } catch (err: unknown) {
+      const errObj = err as Error;
+      error('Reset Error', errObj?.message || 'Invalid or expired code. Please request a new link.');
     } finally {
       setIsLoading(false);
     }
@@ -203,9 +279,71 @@ export const AuthPage: React.FC<AuthPageProps> = ({
               <p className="text-[11px] text-slate-400 mt-2">
                 {emailSentData.type === 'signup' && 'Click the verification link in the email to activate your cafe account.'}
                 {emailSentData.type === 'magic-link' && 'Click the 1-click login button in the email to sign in immediately.'}
-                {emailSentData.type === 'reset' && 'Click the link to securely reset your password.'}
+                {emailSentData.type === 'reset' && 'Click the reset link in the email, OR enter the 6-digit verification code below.'}
               </p>
             </div>
+
+            {/* Direct 6-Digit OTP Code entry for instant password reset */}
+            {emailSentData.type === 'reset' && (
+              <div className="text-left bg-slate-950/90 border border-amber-500/30 rounded-2xl p-4 space-y-3 mt-3 shadow-inner">
+                <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
+                  <KeyRound className="w-4 h-4 shrink-0" />
+                  <span>Enter 6-Digit Code from Email</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Supabase recovery emails also include a 6-digit OTP code. Enter it here to choose your new password right away:
+                </p>
+
+                <div className="space-y-3">
+                  <Input
+                    label="6-Digit Reset Code"
+                    placeholder="123456"
+                    value={recoveryCode}
+                    onChange={(e) => setRecoveryCode(e.target.value)}
+                    maxLength={10}
+                    className="font-mono text-center tracking-widest text-base font-bold text-amber-400"
+                  />
+
+                  <div className="relative">
+                    <Input
+                      label="New Password"
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="•••••••• (min 6 characters)"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      leftIcon={<Lock className="w-4 h-4" />}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-8 text-slate-400 hover:text-slate-200 cursor-pointer"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+
+                  <Input
+                    label="Confirm New Password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="••••••••"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    leftIcon={<Lock className="w-4 h-4" />}
+                  />
+
+                  <Button
+                    type="button"
+                    variant="primary"
+                    className="w-full text-xs font-bold py-2.5 shadow-md shadow-amber-500/20"
+                    isLoading={isLoading}
+                    onClick={handleDirectOtpReset}
+                    leftIcon={<ShieldCheck className="w-4 h-4" />}
+                  >
+                    Verify Code & Set New Password
+                  </Button>
+                </div>
+              </div>
+            )}
 
             <div className="pt-2 space-y-2">
               <Button
@@ -235,42 +373,63 @@ export const AuthPage: React.FC<AuthPageProps> = ({
           </div>
         ) : (
           <>
-            {/* Mode Selector Tabs */}
-            <div className="grid grid-cols-3 gap-1 p-1 bg-slate-950 rounded-2xl border border-slate-800/80 mb-6 text-xs font-semibold">
-              <button
-                type="button"
-                onClick={() => setMode('login')}
-                className={`py-2 px-2 rounded-xl transition-all cursor-pointer text-center ${
-                  mode === 'login'
-                    ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Sign In
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode('signup')}
-                className={`py-2 px-2 rounded-xl transition-all cursor-pointer text-center ${
-                  mode === 'signup'
-                    ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Register
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode('magic-link')}
-                className={`py-2 px-2 rounded-xl transition-all cursor-pointer text-center ${
-                  mode === 'magic-link'
-                    ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Magic Link
-              </button>
-            </div>
+            {/* Mode Selector Tabs / Recovery Badge */}
+            {mode !== 'reset-password' && mode !== 'forgot' ? (
+              <div className="grid grid-cols-3 gap-1 p-1 bg-slate-950 rounded-2xl border border-slate-800/80 mb-6 text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setMode('login')}
+                  className={`py-2 px-2 rounded-xl transition-all cursor-pointer text-center ${
+                    mode === 'login'
+                      ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Sign In
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode('signup')}
+                  className={`py-2 px-2 rounded-xl transition-all cursor-pointer text-center ${
+                    mode === 'signup'
+                      ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Register
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode('magic-link')}
+                  className={`py-2 px-2 rounded-xl transition-all cursor-pointer text-center ${
+                    mode === 'magic-link'
+                      ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Magic Link
+                </button>
+              </div>
+            ) : mode === 'reset-password' ? (
+              <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400 text-xs font-semibold mb-6">
+                <KeyRound className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>Password Recovery Mode Active</span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between px-3.5 py-2.5 rounded-2xl bg-slate-950 border border-slate-800 text-xs mb-6">
+                <div className="flex items-center gap-2 text-slate-300">
+                  <Lock className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Password Reset</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMode('login')}
+                  className="text-amber-400 hover:text-amber-300 font-semibold cursor-pointer"
+                >
+                  Back to Sign In
+                </button>
+              </div>
+            )}
 
             {/* Active Mode Form Header */}
             <div className="mb-5">
@@ -280,13 +439,15 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 {mode === 'magic-link' && 'Passwordless Email Sign In'}
                 {mode === 'staff-pin' && 'Staff Terminal Fast PIN Access'}
                 {mode === 'forgot' && 'Reset Your CafeOS Password'}
+                {mode === 'reset-password' && 'Create Your New Password'}
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
                 {mode === 'login' && 'Enter your email & password to access your dashboard.'}
                 {mode === 'signup' && 'Get started in 60 seconds. An email will be sent by CafeOS to confirm.'}
                 {mode === 'magic-link' && 'We will send a 1-click login link directly from CafeOS to your email.'}
                 {mode === 'staff-pin' && 'Enter your 4-digit staff PIN for terminal access.'}
-                {mode === 'forgot' && 'Enter your registered email to receive reset instructions.'}
+                {mode === 'forgot' && 'Enter your registered email to receive reset instructions and OTP.'}
+                {mode === 'reset-password' && 'Choose a secure new password for your CafeOS owner account.'}
               </p>
             </div>
 
@@ -315,7 +476,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
               )}
 
               {/* Email Address (for login, signup, magic-link, forgot) */}
-              {mode !== 'staff-pin' && (
+              {mode !== 'staff-pin' && mode !== 'reset-password' && (
                 <Input
                   label="Email Address"
                   type="email"
@@ -327,14 +488,14 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 />
               )}
 
-              {/* Password for Login & Signup */}
-              {(mode === 'login' || mode === 'signup') && (
+              {/* Password for Login, Signup & Reset-Password */}
+              {(mode === 'login' || mode === 'signup' || mode === 'reset-password') && (
                 <div>
                   <div className="relative">
                     <Input
-                      label="Password"
+                      label={mode === 'reset-password' ? 'New Password' : 'Password'}
                       type={showPassword ? 'text' : 'password'}
-                      placeholder="••••••••"
+                      placeholder="•••••••• (min 6 characters)"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       leftIcon={<Lock className="w-4 h-4" />}
@@ -351,10 +512,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 </div>
               )}
 
-              {/* Confirm Password for Signup */}
-              {mode === 'signup' && (
+              {/* Confirm Password for Signup & Reset-Password */}
+              {(mode === 'signup' || mode === 'reset-password') && (
                 <Input
-                  label="Confirm Password"
+                  label={mode === 'reset-password' ? 'Confirm New Password' : 'Confirm Password'}
                   type={showPassword ? 'text' : 'password'}
                   placeholder="••••••••"
                   value={confirmPassword}
@@ -410,12 +571,13 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 variant="primary"
                 className="w-full text-xs font-bold py-2.5 shadow-lg shadow-amber-500/20"
                 isLoading={isLoading}
-                rightIcon={<ArrowRight className="w-4 h-4" />}
+                rightIcon={mode === 'reset-password' ? <CheckCircle2 className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
               >
                 {mode === 'login' && 'Sign In with Email'}
                 {mode === 'signup' && 'Register with Email'}
                 {mode === 'magic-link' && 'Send Email by CafeOS'}
                 {mode === 'forgot' && 'Send Password Reset Link'}
+                {mode === 'reset-password' && 'Save New Password & Continue'}
                 {mode === 'staff-pin' && 'Verify PIN & Enter'}
               </Button>
 
@@ -453,6 +615,20 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                     </button>
                   </p>
                 </>
+              ) : mode === 'reset-password' ? (
+                <p>
+                  Cancel password reset?{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      clearPasswordRecoveryState();
+                      setMode('login');
+                    }}
+                    className="text-amber-400 hover:text-amber-300 font-bold hover:underline cursor-pointer"
+                  >
+                    Back to Sign In
+                  </button>
+                </p>
               ) : (
                 <p>
                   Already have an account?{' '}
