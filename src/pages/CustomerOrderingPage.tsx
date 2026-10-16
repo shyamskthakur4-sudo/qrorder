@@ -21,9 +21,10 @@ import {
   Star,
   Gift,
   ExternalLink,
+  Loader2,
 } from 'lucide-react';
 import { useBusiness } from '../context/BusinessContext';
-import { MenuItem, MenuVariant, MenuAddon, OrderItem, OrderItemAddon, Order } from '../types';
+import { Business, Branch, RestaurantTable, MenuCategory, MenuItem, MenuVariant, MenuAddon, OrderItem, OrderItemAddon, Order, Coupon } from '../types';
 import { formatCurrency, generateUUID } from '../lib/utils';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
@@ -50,6 +51,19 @@ export interface CustomerOrderingPageProps {
   onExitToAdmin?: () => void;
 }
 
+function extractScannedCode(propCode?: string | null): string | null {
+  if (propCode) return propCode;
+  if (typeof window === 'undefined') return null;
+  const search = new URLSearchParams(window.location.search);
+  const qTable = search.get('table');
+  if (qTable) return qTable;
+  const match = window.location.pathname.match(/^\/menu(?:\/([^\/?#]+))?/i);
+  if (match && match[1]) return decodeURIComponent(match[1]);
+  const hashMatch = window.location.hash.match(/^#\/?menu(?:\/([^\/?#]+))?/i);
+  if (hashMatch && hashMatch[1]) return decodeURIComponent(hashMatch[1]);
+  return null;
+}
+
 export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
   scannedTableCode,
   isStandalone = false,
@@ -68,6 +82,176 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
     submitOrderReview,
   } = useBusiness();
   const { success, error, info } = useToast();
+
+  // Cloud-resolved state directly from table QR code
+  const [cloudBusiness, setCloudBusiness] = useState<Business | null>(null);
+  const [cloudBranch, setCloudBranch] = useState<Branch | null>(null);
+  const [cloudTable, setCloudTable] = useState<RestaurantTable | null>(null);
+  const [cloudCategories, setCloudCategories] = useState<MenuCategory[]>([]);
+  const [cloudMenuItems, setCloudMenuItems] = useState<MenuItem[]>([]);
+  const [cloudCoupons, setCloudCoupons] = useState<Coupon[]>([]);
+  const [isCloudLoading, setIsCloudLoading] = useState<boolean>(() => {
+    return isSupabaseConfigured && !!extractScannedCode(scannedTableCode);
+  });
+
+  // Dynamically resolve QR code from Supabase
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setIsCloudLoading(false);
+      return;
+    }
+    const code = extractScannedCode(scannedTableCode);
+    if (!code) {
+      setIsCloudLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+    const clean = code.trim();
+
+    const resolveQrFromSupabase = async () => {
+      try {
+        setIsCloudLoading(true);
+
+        // 1. Check qr_codes table by code_identifier
+        const { data: qrData } = await supabase
+          .from('qr_codes')
+          .select('*, table:tables(*), business:businesses(*), branch:branches(*)')
+          .ilike('code_identifier', clean)
+          .maybeSingle();
+
+        if (qrData && qrData.business && qrData.table) {
+          if (!isMounted) return;
+          const biz: Business = qrData.business;
+          const br: Branch = qrData.branch || {
+            id: qrData.branch_id,
+            business_id: biz.id,
+            name: 'Main Branch',
+            slug: 'main-branch',
+            tax_rate_percent: 5.0,
+            service_charge_percent: 0.0,
+            opening_time: '09:00',
+            closing_time: '23:00',
+            is_active: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+          const tbl: RestaurantTable = {
+            ...qrData.table,
+            qr_code: qrData,
+          };
+
+          setCloudBusiness(biz);
+          setCloudBranch(br);
+          setCloudTable(tbl);
+
+          const [catRes, itemRes, coupRes] = await Promise.all([
+            supabase.from('menu_categories').select('*').eq('branch_id', br.id).order('display_order', { ascending: true }),
+            supabase.from('menu_items').select('*, variants:menu_variants(*), addons:menu_addons(*)').eq('branch_id', br.id).order('display_order', { ascending: true }),
+            supabase.from('coupons').select('*').eq('business_id', biz.id).eq('is_active', true),
+          ]);
+
+          if (isMounted) {
+            if (catRes.data && catRes.data.length > 0) setCloudCategories(catRes.data);
+            if (itemRes.data && itemRes.data.length > 0) setCloudMenuItems(itemRes.data);
+            if (coupRes.data) setCloudCoupons(coupRes.data);
+          }
+          return;
+        }
+
+        // 2. Query tables directly if qr_code was not found
+        const { data: tblData } = await supabase
+          .from('tables')
+          .select('*, qr_code:qr_codes(*), business:businesses(*), branch:branches(*)')
+          .or(`id.eq.${clean},table_number.ilike.${clean}`)
+          .limit(1)
+          .maybeSingle();
+
+        if (tblData && tblData.business) {
+          if (!isMounted) return;
+          const biz: Business = tblData.business;
+          const br: Branch = tblData.branch || {
+            id: tblData.branch_id,
+            business_id: biz.id,
+            name: 'Main Branch',
+            slug: 'main-branch',
+            tax_rate_percent: 5.0,
+            service_charge_percent: 0.0,
+            opening_time: '09:00',
+            closing_time: '23:00',
+            is_active: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+          const rawQr = Array.isArray(tblData.qr_code) ? tblData.qr_code[0] : tblData.qr_code;
+          const tbl: RestaurantTable = {
+            ...tblData,
+            qr_code: rawQr,
+          };
+
+          setCloudBusiness(biz);
+          setCloudBranch(br);
+          setCloudTable(tbl);
+
+          const [catRes, itemRes, coupRes] = await Promise.all([
+            supabase.from('menu_categories').select('*').eq('branch_id', br.id).order('display_order', { ascending: true }),
+            supabase.from('menu_items').select('*, variants:menu_variants(*), addons:menu_addons(*)').eq('branch_id', br.id).order('display_order', { ascending: true }),
+            supabase.from('coupons').select('*').eq('business_id', biz.id).eq('is_active', true),
+          ]);
+
+          if (isMounted) {
+            if (catRes.data && catRes.data.length > 0) setCloudCategories(catRes.data);
+            if (itemRes.data && itemRes.data.length > 0) setCloudMenuItems(itemRes.data);
+            if (coupRes.data) setCloudCoupons(coupRes.data);
+          }
+        }
+      } catch (err) {
+        console.warn('Supabase QR cloud resolution error:', err);
+      } finally {
+        if (isMounted) setIsCloudLoading(false);
+      }
+    };
+
+    resolveQrFromSupabase();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [scannedTableCode]);
+
+  // Selected table in admin simulator
+  const [selectedTableId, setSelectedTableId] = useState<string>(() => tables[0]?.id || '');
+
+  useEffect(() => {
+    if (tables.length === 0) return;
+    const code = extractScannedCode(scannedTableCode);
+    if (code) {
+      const clean = code.trim().toLowerCase();
+      const matched = tables.find((t) => {
+        if (t.qr_code?.code_identifier && t.qr_code.code_identifier.toLowerCase() === clean) return true;
+        if (t.table_number.toLowerCase() === clean) return true;
+        if (t.id.toLowerCase() === clean) return true;
+        return false;
+      });
+      if (matched) {
+        setSelectedTableId(matched.id);
+        return;
+      }
+    }
+    if (!tables.some((t) => t.id === selectedTableId) && tables[0]) {
+      setSelectedTableId(tables[0].id);
+    }
+  }, [scannedTableCode, tables, selectedTableId]);
+
+  const activeTable = tables.find((t) => t.id === selectedTableId) || tables[0];
+
+  // Effective tenant entities: prefer cloud-resolved live cafe over local admin context
+  const effectiveBusiness: Business = cloudBusiness || activeBusiness;
+  const effectiveBranch: Branch = cloudBranch || activeBranch;
+  const effectiveTable: RestaurantTable | undefined = cloudTable || activeTable;
+  const effectiveCategories: MenuCategory[] = cloudCategories.length > 0 ? cloudCategories : categories;
+  const effectiveMenuItems: MenuItem[] = cloudMenuItems.length > 0 ? cloudMenuItems : menuItems;
+  const effectiveCoupons: Coupon[] = cloudCoupons.length > 0 ? cloudCoupons : coupons;
 
   // Web Push Notification Permission & Opt-In State
   const [showNotificationPrompt, setShowNotificationPrompt] = useState<boolean>(() => {
@@ -89,9 +273,9 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
 
       if (perm === 'granted') {
         success('Notifications Enabled! 🎉', 'You will receive real-time food updates & secret flash discounts on your phone.');
-        new Notification(`${activeBusiness.name}`, {
+        new Notification(`${effectiveBusiness.name}`, {
           body: '🎉 Notifications enabled! We will alert you the moment your food is ready + VIP table deals.',
-          icon: activeBusiness.logo_url || '/favicon.svg',
+          icon: effectiveBusiness.logo_url || '/favicon.svg',
           badge: '/favicon.svg',
         });
       } else {
@@ -110,11 +294,11 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
       .channel('public:cafeos_broadcasts')
       .on('broadcast', { event: 'marketing_push' }, (payload: any) => {
         const data = payload?.payload;
-        if (data && data.business_id === activeBusiness.id) {
+        if (data && data.business_id === effectiveBusiness.id) {
           if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-            new Notification(`${data.business_name || activeBusiness.name}: ${data.title}`, {
+            new Notification(`${data.business_name || effectiveBusiness.name}: ${data.title}`, {
               body: data.message,
-              icon: data.logo_url || activeBusiness.logo_url || '/favicon.svg',
+              icon: data.logo_url || effectiveBusiness.logo_url || '/favicon.svg',
               badge: '/favicon.svg',
             });
           }
@@ -126,48 +310,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [activeBusiness.id]);
-
-  // Selected table - automatically matched from scanned QR code or URL param
-  const [selectedTableId, setSelectedTableId] = useState<string>(() => tables[0]?.id || '');
-
-  useEffect(() => {
-    if (tables.length === 0) return;
-
-    // Check code from prop or URL
-    let code = scannedTableCode;
-    if (!code && typeof window !== 'undefined') {
-      const search = new URLSearchParams(window.location.search);
-      code = search.get('table');
-      if (!code) {
-        const match = window.location.pathname.match(/^\/menu(?:\/([^\/?#]+))?/i);
-        if (match && match[1]) code = decodeURIComponent(match[1]);
-      }
-    }
-
-    if (code) {
-      const clean = code.trim().toLowerCase();
-      const matched = tables.find((t) => {
-        if (t.qr_code?.code_identifier && t.qr_code.code_identifier.toLowerCase() === clean) return true;
-        if (t.table_number.toLowerCase() === clean) return true;
-        if (t.id.toLowerCase() === clean) return true;
-        if (t.table_number.toLowerCase() === clean.replace(/^t-?/i, '')) return true;
-        if (`t-${t.table_number.toLowerCase()}` === clean) return true;
-        return false;
-      });
-
-      if (matched) {
-        setSelectedTableId(matched.id);
-        return;
-      }
-    }
-
-    if (!tables.some((t) => t.id === selectedTableId) && tables[0]) {
-      setSelectedTableId(tables[0].id);
-    }
-  }, [scannedTableCode, tables, selectedTableId]);
-
-  const activeTable = tables.find((t) => t.id === selectedTableId) || tables[0];
+  }, [effectiveBusiness.id]);
 
   // Menu filtering
   const [selectedCatId, setSelectedCatId] = useState<string>('ALL');
@@ -215,10 +358,44 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
   const [isReviewModalOpen, setIsReviewModalOpen] = useState<boolean>(false);
   const [hasAutoPromptedReview, setHasAutoPromptedReview] = useState<boolean>(false);
 
-  // Synchronize placed order with real-time context orders state
+  // Synchronize placed order with real-time context orders state or Supabase
   const currentPlacedOrder: Order | null =
     orders.find((o) => o.id === (placedOrderId || placedOrder?.id)) ||
     placedOrder;
+
+  // Real-time listener for placed order status updates
+  useEffect(() => {
+    if (!isSupabaseConfigured || !placedOrderId) return;
+
+    supabase
+      .from('orders')
+      .select('*, items:order_items(*)')
+      .eq('id', placedOrderId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) setPlacedOrder(data);
+      });
+
+    const channel = supabase
+      .channel(`cust_order_${placedOrderId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${placedOrderId}` },
+        (payload) => {
+          const updated = payload.new as Order;
+          setPlacedOrder((prev) => (prev ? { ...prev, ...updated } : updated));
+          if (updated.status === 'COMPLETED' && !hasAutoPromptedReview) {
+            setIsReviewModalOpen(true);
+            setHasAutoPromptedReview(true);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [placedOrderId, hasAutoPromptedReview]);
 
   // Auto prompt Google Review when order status reaches COMPLETED
   useEffect(() => {
@@ -227,7 +404,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
       currentPlacedOrder.status === 'COMPLETED' &&
       !currentPlacedOrder.review_submitted &&
       !hasAutoPromptedReview &&
-      activeBusiness.enable_google_review_prompt !== false
+      effectiveBusiness.enable_google_review_prompt !== false
     ) {
       setHasAutoPromptedReview(true);
       const timer = setTimeout(() => {
@@ -238,7 +415,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
   }, [
     currentPlacedOrder,
     hasAutoPromptedReview,
-    activeBusiness.enable_google_review_prompt,
+    effectiveBusiness.enable_google_review_prompt,
   ]);
 
   const handleReviewSubmit = (review: {
@@ -253,7 +430,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
   };
 
   // Filtered menu
-  const displayItems = menuItems.filter((m) => {
+  const displayItems = effectiveMenuItems.filter((m) => {
     const matchesCat = selectedCatId === 'ALL' || m.category_id === selectedCatId;
     const matchesSearch =
       m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -317,7 +494,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
 
   // Subtotal calculations
   const cartSubtotal = cart.reduce((sum, ci) => sum + ci.totalPrice, 0);
-  const gstRate = activeBranch.tax_rate_percent || 5.0;
+  const gstRate = effectiveBranch.tax_rate_percent || 5.0;
   const gstAmount = (cartSubtotal * gstRate) / 100;
   const discountAmount = appliedCoupon ? appliedCoupon.discount : 0;
   const finalTotal = Math.max(0, cartSubtotal + gstAmount - discountAmount);
@@ -326,7 +503,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
     e.preventDefault();
     if (!couponCode.trim()) return;
 
-    const matched = coupons.find(
+    const matched = effectiveCoupons.find(
       (cp) =>
         cp.code.toUpperCase() === couponCode.trim().toUpperCase() &&
         cp.is_active &&
@@ -344,7 +521,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
         discount = matched.discount_value;
       }
       setAppliedCoupon({ code: matched.code, discount });
-      success('Coupon Applied!', `You saved ${formatCurrency(discount, 'INR', '₹')}`);
+      success('Coupon Applied!', `You saved ${formatCurrency(discount, effectiveBusiness.currency, effectiveBusiness.currency_symbol)}`);
     } else {
       error('Invalid Coupon', 'Code is expired, invalid, or does not meet minimum order value.');
     }
@@ -375,7 +552,9 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
     }));
 
     const newOrder = await createOrder({
-      table_id: activeTable?.id,
+      business_id: effectiveBusiness.id,
+      branch_id: effectiveBranch.id,
+      table_id: effectiveTable?.id,
       customer_name: custName,
       customer_phone: custPhone,
       subtotal: cartSubtotal,
@@ -385,14 +564,14 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
       payment_method: paymentMethod,
       payment_status: paymentMethod === 'CASH' ? 'PENDING' : 'PAID',
       items: orderItemsPayload,
-      notes: `Ordered via Customer QR (Table: ${activeTable?.table_number})`,
+      notes: `Ordered via Customer QR (Table: ${effectiveTable?.table_number || '01'})`,
     });
 
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
       try {
-        new Notification(`${activeBusiness.name} - Order Placed! 🍽️`, {
-          body: `Order ${newOrder.order_number} received! Our kitchen is preparing it fresh for Table ${activeTable?.table_number}.`,
-          icon: activeBusiness.logo_url || '/favicon.svg',
+        new Notification(`${effectiveBusiness.name} - Order Placed! 🍽️`, {
+          body: `Order ${newOrder.order_number} received! Our kitchen is preparing it fresh for Table ${effectiveTable?.table_number || '01'}.`,
+          icon: effectiveBusiness.logo_url || '/favicon.svg',
         });
       } catch {}
     }
@@ -416,6 +595,18 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
     setIsCheckoutOpen(false);
     success('Order Placed!', `Your order ${newOrder.order_number} has been dispatched to the kitchen.`);
   };
+
+  if (isCloudLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center text-slate-100">
+        <div className="w-14 h-14 rounded-3xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mb-4 shadow-lg shadow-amber-500/10">
+          <Loader2 className="w-7 h-7 text-amber-400 animate-spin" />
+        </div>
+        <h3 className="text-base font-bold text-slate-100 font-['Outfit']">Connecting to Restaurant...</h3>
+        <p className="text-xs text-slate-400 mt-1">Loading digital menu & table details</p>
+      </div>
+    );
+  }
 
   return (
     <div className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col ${isStandalone ? 'w-full' : 'max-w-md mx-auto border border-slate-800 rounded-[36px] shadow-2xl overflow-hidden my-4'}`}>
@@ -446,22 +637,22 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
         <div className="relative p-5 bg-gradient-to-b from-amber-950/40 via-slate-900 to-slate-950 border-b border-slate-800/80">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              {activeBusiness.logo_url ? (
+              {effectiveBusiness.logo_url ? (
                 <img
-                  src={activeBusiness.logo_url}
-                  alt={activeBusiness.name}
+                  src={effectiveBusiness.logo_url}
+                  alt={effectiveBusiness.name}
                   className="w-12 h-12 rounded-2xl object-cover border border-amber-500/40 shadow-lg shadow-amber-500/30 shrink-0"
                 />
               ) : (
                 <div className="w-12 h-12 rounded-2xl bg-amber-500 flex items-center justify-center font-black text-slate-950 text-xl shadow-lg shadow-amber-500/30 shrink-0">
-                  {activeBusiness.name ? activeBusiness.name.charAt(0).toUpperCase() : 'C'}
+                  {effectiveBusiness.name ? effectiveBusiness.name.charAt(0).toUpperCase() : 'C'}
                 </div>
               )}
               <div>
                 <h1 className="text-base font-extrabold text-slate-100 font-['Outfit']">
-                  {activeBusiness.name}
+                  {effectiveBusiness.name}
                 </h1>
-                <p className="text-xs text-slate-400">{activeBranch.name}</p>
+                <p className="text-xs text-slate-400">{effectiveBranch.name}</p>
               </div>
             </div>
 
@@ -469,7 +660,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
               <span className="text-[10px] text-amber-400/90 block font-normal">Dining at</span>
               <span className="flex items-center gap-1.5 justify-center">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                Table {activeTable?.table_number || '01'}
+                Table {effectiveTable?.table_number || '01'}
               </span>
             </div>
           </div>
@@ -554,7 +745,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
         >
           All
         </button>
-        {categories.map((c) => (
+        {effectiveCategories.map((c) => (
           <button
             key={c.id}
             onClick={() => setSelectedCatId(c.id)}
@@ -604,8 +795,8 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
                 <span className="font-extrabold text-sm text-slate-100 font-['Outfit']">
                   {formatCurrency(
                     item.price,
-                    activeBusiness.currency,
-                    activeBusiness.currency_symbol
+                    effectiveBusiness.currency,
+                    effectiveBusiness.currency_symbol
                   )}
                 </span>
                 <span className="text-[10px] font-bold px-2 py-1 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/30 group-hover:bg-amber-500 group-hover:text-slate-950 transition-all">
@@ -698,7 +889,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
             </div>
             <div className="flex items-center gap-2">
               <span className="text-base font-extrabold font-['Outfit']">
-                {formatCurrency(cartSubtotal, 'INR', '₹')}
+                {formatCurrency(cartSubtotal, effectiveBusiness.currency, effectiveBusiness.currency_symbol)}
               </span>
               <ChevronRight className="w-5 h-5" />
             </div>
@@ -786,7 +977,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
                           </span>
                           <span>{addon.name}</span>
                         </div>
-                        <span className="text-amber-400 font-bold">+₹{addon.price}</span>
+                        <span className="text-amber-400 font-bold">+{effectiveBusiness.currency_symbol}{addon.price}</span>
                       </button>
                     );
                   })}
@@ -834,8 +1025,8 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
                   ((customVariant ? customVariant.price : selectedItemForCustom.price) +
                     customAddons.reduce((sum, a) => sum + a.price, 0)) *
                     customQuantity,
-                  'INR',
-                  '₹'
+                  effectiveBusiness.currency,
+                  effectiveBusiness.currency_symbol
                 )}
               </Button>
             </div>
@@ -850,7 +1041,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
         title={
           <div className="flex items-center gap-2">
             <ShoppingBag className="w-5 h-5 text-amber-400" />
-            <span>Your Table {activeTable?.table_number} Order</span>
+            <span>Your Table {effectiveTable?.table_number || '01'} Order</span>
           </div>
         }
         description="Review items before sending order directly to the kitchen."
@@ -878,7 +1069,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
                     <p className="text-[10px] text-slate-500 italic mt-0.5">"{ci.notes}"</p>
                   )}
                   <span className="font-extrabold text-xs text-slate-100 font-['Outfit'] block mt-1">
-                    {formatCurrency(ci.totalPrice, 'INR', '₹')}
+                    {formatCurrency(ci.totalPrice, effectiveBusiness.currency, effectiveBusiness.currency_symbol)}
                   </span>
                 </div>
 
@@ -926,22 +1117,22 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
           <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 text-xs space-y-1.5">
             <div className="flex justify-between text-slate-400">
               <span>Item Subtotal</span>
-              <span>{formatCurrency(cartSubtotal, 'INR', '₹')}</span>
+              <span>{formatCurrency(cartSubtotal, effectiveBusiness.currency, effectiveBusiness.currency_symbol)}</span>
             </div>
             <div className="flex justify-between text-slate-400">
               <span>GST ({gstRate}%)</span>
-              <span>{formatCurrency(gstAmount, 'INR', '₹')}</span>
+              <span>{formatCurrency(gstAmount, effectiveBusiness.currency, effectiveBusiness.currency_symbol)}</span>
             </div>
             {discountAmount > 0 && (
               <div className="flex justify-between text-emerald-400 font-semibold">
                 <span>Coupon Discount</span>
-                <span>-{formatCurrency(discountAmount, 'INR', '₹')}</span>
+                <span>-{formatCurrency(discountAmount, effectiveBusiness.currency, effectiveBusiness.currency_symbol)}</span>
               </div>
             )}
             <div className="flex justify-between text-slate-100 font-black text-sm pt-2 border-t border-slate-800">
               <span>To Pay</span>
               <span className="text-amber-400 font-['Outfit']">
-                {formatCurrency(finalTotal, 'INR', '₹')}
+                {formatCurrency(finalTotal, effectiveBusiness.currency, effectiveBusiness.currency_symbol)}
               </span>
             </div>
           </div>
@@ -954,7 +1145,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
               setIsCheckoutOpen(true);
             }}
           >
-            Proceed to Checkout &bull; {formatCurrency(finalTotal, 'INR', '₹')}
+            Proceed to Checkout &bull; {formatCurrency(finalTotal, effectiveBusiness.currency, effectiveBusiness.currency_symbol)}
           </Button>
         </div>
       </Modal>
@@ -964,7 +1155,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
         isOpen={isCheckoutOpen}
         onClose={() => setIsCheckoutOpen(false)}
         title="Dine-in Customer Checkout"
-        description={`Confirming order for Table ${activeTable?.table_number}`}
+        description={`Confirming order for Table ${effectiveTable?.table_number || '01'}`}
         maxWidth="sm"
       >
         <form onSubmit={handlePlaceOrder} className="space-y-4">
@@ -1024,7 +1215,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
           </div>
 
           <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300">
-            Total Payable: <strong className="font-['Outfit'] text-sm">{formatCurrency(finalTotal, 'INR', '₹')}</strong>
+            Total Payable: <strong className="font-['Outfit'] text-sm">{formatCurrency(finalTotal, effectiveBusiness.currency, effectiveBusiness.currency_symbol)}</strong>
           </div>
 
           <Button type="submit" variant="primary" className="w-full">
@@ -1073,13 +1264,13 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
                 </Badge>
               </div>
               <p className="text-xs text-slate-400">
-                Table {activeTable?.table_number || currentPlacedOrder.table?.table_number || '4'} &bull;{' '}
+                Table {effectiveTable?.table_number || currentPlacedOrder.table?.table_number || '01'} &bull;{' '}
                 {currentPlacedOrder.customer_name}
               </p>
               <p className="text-xs text-slate-400">
                 {currentPlacedOrder.items?.length || 0} items ordered &bull; Total:{' '}
                 <strong className="text-slate-100">
-                  {formatCurrency(currentPlacedOrder.total_amount, 'INR', '₹')}
+                  {formatCurrency(currentPlacedOrder.total_amount, effectiveBusiness.currency, effectiveBusiness.currency_symbol)}
                 </strong>
               </p>
             </div>
@@ -1097,7 +1288,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
                         Rate Your Experience on Google
                       </h4>
                       <p className="text-[10px] text-amber-400">
-                        {activeBusiness.review_reward_text || 'Help our local team & earn 10% off your next visit!'}
+                        {effectiveBusiness.review_reward_text || 'Help our local team & earn 10% off your next visit!'}
                       </p>
                     </div>
                   </div>
@@ -1111,7 +1302,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
                     </div>
                     <p className="text-[11px] text-slate-300">
                       Thank you for your generous feedback! Show this to staff or use code{' '}
-                      <strong className="font-mono text-amber-300">{activeBusiness.review_coupon_code || 'REVIEW10'}</strong>{' '}
+                      <strong className="font-mono text-amber-300">{effectiveBusiness.review_coupon_code || 'REVIEW10'}</strong>{' '}
                       for your reward.
                     </p>
                   </div>
@@ -1173,7 +1364,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
                       currentPlacedOrder.status === 'PREPARING' ? 'animate-bounce text-amber-400' : ''
                     }`}
                   />
-                  <span>2. Kitchen Station Preparing ({activeBranch.name})</span>
+                  <span>2. Kitchen Station Preparing ({effectiveBranch.name})</span>
                 </div>
 
                 {/* Step 3 */}
@@ -1197,7 +1388,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
                   }`}
                 >
                   <Utensils className="w-4 h-4 shrink-0" />
-                  <span>4. Served at Table {activeTable?.table_number || currentPlacedOrder.table?.table_number || '4'}</span>
+                  <span>4. Served at Table {effectiveTable?.table_number || currentPlacedOrder.table?.table_number || '01'}</span>
                 </div>
 
                 {/* Step 5: Completed */}
@@ -1301,14 +1492,14 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
         isOpen={isReviewModalOpen}
         onClose={() => setIsReviewModalOpen(false)}
         order={currentPlacedOrder}
-        business={activeBusiness}
-        branch={activeBranch}
+        business={effectiveBusiness}
+        branch={effectiveBranch}
         onSubmitReview={handleReviewSubmit}
       />
 
         {/* Customer Experience Footer */}
         <div className="mt-auto py-6 px-4 text-center border-t border-slate-900 text-slate-500 text-[11px] space-y-1.5">
-          <p>© {new Date().getFullYear()} {activeBusiness.name} &bull; Contactless Mobile Dining</p>
+          <p>© {new Date().getFullYear()} {effectiveBusiness.name} &bull; Contactless Mobile Dining</p>
           <div className="flex items-center justify-center gap-2 pt-1 text-[10px]">
             <span className="text-slate-600">⚡ Powered by CafeOS</span>
             {onExitToAdmin && (

@@ -184,12 +184,12 @@ const MainApp: React.FC = () => {
     );
   }
 
-  // When visiting /login, /register, /forgot, or when in password recovery mode, render standalone AuthPage
-  if (routeInfo.isAuth || isPasswordRecovery) {
+  // When visiting /login, /register, /forgot, when in password recovery mode, or when unauthenticated
+  if (!isAuthenticated || routeInfo.isAuth || isPasswordRecovery) {
     return (
       <Suspense fallback={<PageLoadingFallback />}>
         <AuthPage
-          initialMode={isPasswordRecovery ? 'reset-password' : routeInfo.authMode}
+          initialMode={isPasswordRecovery ? 'reset-password' : (routeInfo.isAuth ? routeInfo.authMode : 'login')}
           onSuccess={() => {
             window.history.pushState({}, '', '/');
             setRouteInfo(parseAppRoute());

@@ -103,7 +103,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <>
             <Input
               label="Full Name"
-              placeholder="e.g. Shyam Raghuwanshi"
+              placeholder="e.g. Rahul Sharma"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               leftIcon={<User className="w-4 h-4" />}

@@ -457,7 +457,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 <>
                   <Input
                     label="Full Name / Owner Name"
-                    placeholder="e.g. Shyam Raghuwanshi"
+                    placeholder="e.g. Rahul Sharma"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     leftIcon={<User className="w-4 h-4" />}

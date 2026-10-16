@@ -340,10 +340,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
         if (error) throw error;
 
-        // Check if email confirmation is required
-        const needsConfirmation = !data.session && data.user && !data.user.email_confirmed_at;
-
         if (data.user) {
+          // Attempt immediate login with password since handle_new_user auto-confirms email
+          if (password) {
+            try {
+              const { data: loginData, error: loginErr } = await supabase.auth.signInWithPassword({
+                email: cleanEmail,
+                password,
+              });
+
+              if (!loginErr && loginData?.user) {
+                const loggedInUser: UserProfile = {
+                  id: loginData.user.id,
+                  email: loginData.user.email || cleanEmail,
+                  full_name: cleanName,
+                  created_at: loginData.user.created_at,
+                  updated_at: loginData.user.created_at,
+                };
+                setUser(loggedInUser);
+                setRole('OWNER');
+
+                // Query newly created staff record
+                const { data: st } = await supabase
+                  .from('staff')
+                  .select('*')
+                  .or(`user_id.eq.${loginData.user.id},email.eq.${cleanEmail}`)
+                  .limit(1)
+                  .maybeSingle();
+
+                if (st) {
+                  setStaff(st);
+                }
+
+                return {
+                  success: true,
+                  needsEmailConfirmation: false,
+                  message: 'Account created! Welcome to your restaurant workspace.',
+                  email: cleanEmail,
+                };
+              }
+            } catch (autoLoginErr) {
+              console.warn('Auto sign-in notice after signup:', autoLoginErr);
+            }
+          }
+
+          // Check if email confirmation is required as fallback
+          const needsConfirmation = !data.session && data.user && !data.user.email_confirmed_at;
+
           const newUser: UserProfile = {
             id: data.user.id,
             email: data.user.email || cleanEmail,
@@ -515,6 +558,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('cafeos_orders');
     localStorage.removeItem('cafeos_categories');
     localStorage.removeItem('cafeos_menu_items');
+    localStorage.removeItem('cafeos_customers');
+    localStorage.removeItem('cafeos_coupons');
+    localStorage.removeItem('cafeos_inventory');
+    localStorage.removeItem('cafeos_campaigns');
   };
 
   const switchRolePreview = (newRole: StaffRole) => {

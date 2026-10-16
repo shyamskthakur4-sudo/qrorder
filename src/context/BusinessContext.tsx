@@ -29,6 +29,7 @@ import {
 } from '../lib/mockData';
 import { generateUUID, isValidUUID } from '../lib/utils';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { useAuth } from './AuthContext';
 
 interface BusinessContextType {
   // Tenant states
@@ -105,11 +106,23 @@ const isDemoData = (raw: string | null) => {
     s.includes('bella italia') ||
     s.includes('b2222222-2222-2222-2222-222222222222') ||
     s.includes('indiranagar flagship') ||
-    s.includes('#rb-108')
+    s.includes('#rb-108') ||
+    s.includes('b1111111-1111-1111-1111-111111111111') ||
+    s.includes('ba111111-1111-1111-1111-111111111111') ||
+    s.includes('shyams-cafe') ||
+    s.includes("shyam's cafe") ||
+    s.includes('shyamskthakur@gmail.com') ||
+    s.includes('#ord-1001') ||
+    s.includes('rahul sharma') ||
+    s.includes('cafeos demo') ||
+    s.includes('demo-restaurant') ||
+    s.includes('demo@cafeos.app')
   );
 };
 
 export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
+
   // Businesses
   const [businesses, setBusinesses] = useState<Business[]>(() => {
     const saved = localStorage.getItem('cafeos_businesses');
@@ -119,15 +132,15 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       } catch {}
     }
-    return INITIAL_BUSINESSES;
+    return isSupabaseConfigured ? [] : INITIAL_BUSINESSES;
   });
 
   const [activeBusinessId, setActiveBusinessId] = useState<string>(() => {
     const saved = localStorage.getItem('cafeos_active_biz_id');
-    if (saved && saved !== 'b2222222-2222-2222-2222-222222222222') {
+    if (saved && !isDemoData(saved)) {
       return saved;
     }
-    return INITIAL_BUSINESSES[0].id;
+    return isSupabaseConfigured ? '' : INITIAL_BUSINESSES[0].id;
   });
 
   // Branches
@@ -139,15 +152,15 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       } catch {}
     }
-    return INITIAL_BRANCHES;
+    return isSupabaseConfigured ? [] : INITIAL_BRANCHES;
   });
 
   const [activeBranchId, setActiveBranchId] = useState<string>(() => {
     const saved = localStorage.getItem('cafeos_active_branch_id');
-    if (saved && !saved.includes('ba222222') && !saved.includes('ba333333')) {
+    if (saved && !isDemoData(saved)) {
       return saved;
     }
-    return INITIAL_BRANCHES[0].id;
+    return isSupabaseConfigured ? '' : INITIAL_BRANCHES[0].id;
   });
 
   // Tables
@@ -156,7 +169,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (saved && !isDemoData(saved)) {
       try { return JSON.parse(saved); } catch {}
     }
-    return INITIAL_TABLES;
+    return isSupabaseConfigured ? [] : INITIAL_TABLES;
   });
 
   // Orders
@@ -165,7 +178,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (saved && !isDemoData(saved)) {
       try { return JSON.parse(saved); } catch {}
     }
-    return INITIAL_ORDERS;
+    return isSupabaseConfigured ? [] : INITIAL_ORDERS;
   });
 
   // Menu
@@ -174,7 +187,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (saved && !isDemoData(saved)) {
       try { return JSON.parse(saved); } catch {}
     }
-    return INITIAL_CATEGORIES;
+    return isSupabaseConfigured ? [] : INITIAL_CATEGORIES;
   });
 
   const [menuItems, setMenuItems] = useState<MenuItem[]>(() => {
@@ -182,7 +195,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (saved && !isDemoData(saved)) {
       try { return JSON.parse(saved); } catch {}
     }
-    return INITIAL_MENU_ITEMS;
+    return isSupabaseConfigured ? [] : INITIAL_MENU_ITEMS;
   });
 
   // CRM & Loyalty
@@ -191,7 +204,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (saved && !isDemoData(saved)) {
       try { return JSON.parse(saved); } catch {}
     }
-    return INITIAL_CUSTOMERS;
+    return isSupabaseConfigured ? [] : INITIAL_CUSTOMERS;
   });
 
   // Coupons
@@ -200,7 +213,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (saved && !isDemoData(saved)) {
       try { return JSON.parse(saved); } catch {}
     }
-    return INITIAL_COUPONS;
+    return isSupabaseConfigured ? [] : INITIAL_COUPONS;
   });
 
   // Inventory
@@ -209,7 +222,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (saved && !isDemoData(saved)) {
       try { return JSON.parse(saved); } catch {}
     }
-    return INITIAL_INVENTORY;
+    return isSupabaseConfigured ? [] : INITIAL_INVENTORY;
   });
 
   // Marketing Campaigns
@@ -218,7 +231,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (saved && !isDemoData(saved)) {
       try { return JSON.parse(saved); } catch {}
     }
-    return INITIAL_CAMPAIGNS;
+    return isSupabaseConfigured ? [] : INITIAL_CAMPAIGNS;
   });
 
   // Subscriptions (Super Admin)
@@ -274,110 +287,236 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [campaigns]);
 
   // Derived active items
-  const activeBusiness =
-    businesses.find((b) => b.id === activeBusinessId) || businesses[0] || INITIAL_BUSINESSES[0];
+  const activeBusiness: Business =
+    businesses.find((b) => b.id === activeBusinessId) ||
+    businesses[0] ||
+    (isSupabaseConfigured
+      ? {
+          id: user?.id || 'pending-biz',
+          name: user?.full_name ? `${user.full_name}'s Cafe` : 'My Restaurant',
+          slug: 'my-restaurant',
+          email: user?.email || '',
+          phone: '',
+          logo_url: '',
+          currency: 'INR',
+          currency_symbol: '₹',
+          timezone: 'Asia/Kolkata',
+          status: 'ACTIVE',
+          subscription_plan: 'PRO',
+          google_review_url: '',
+          google_place_id: '',
+          enable_google_review_prompt: false,
+          min_rating_for_google: 4,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }
+      : INITIAL_BUSINESSES[0]);
 
   const currentBranches = branches.filter((br) => br.business_id === activeBusiness.id);
 
-  const activeBranch =
+  const activeBranch: Branch =
     currentBranches.find((br) => br.id === activeBranchId) ||
     currentBranches[0] ||
-    INITIAL_BRANCHES[0];
+    branches[0] ||
+    (isSupabaseConfigured
+      ? {
+          id: 'main-branch',
+          business_id: activeBusiness.id,
+          name: 'Main Branch',
+          slug: 'main-branch',
+          address: '',
+          city: '',
+          state: '',
+          pincode: '',
+          phone: '',
+          email: user?.email || '',
+          gst_number: '',
+          tax_rate_percent: 5.0,
+          service_charge_percent: 0.0,
+          opening_time: '09:00',
+          closing_time: '23:00',
+          is_active: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }
+      : INITIAL_BRANCHES[0]);
 
-  // Hydrate initial data from Supabase if configured
+  // Hydrate data from Supabase whenever user or active tenant changes
   useEffect(() => {
     if (!isSupabaseConfigured) return;
 
     let isMounted = true;
+
     const fetchCloudData = async () => {
       try {
-        // Auto-select the authenticated user's business and branch
         const { data: sessionData } = await supabase.auth.getSession();
-        const curUser = sessionData?.session?.user;
+        const curUser = sessionData?.session?.user || user;
 
-        if (curUser) {
-          // Fetch only the business(es) this user owns or is staff of
-          const { data: staffList } = await supabase
-            .from('staff')
+        if (!curUser) {
+          return;
+        }
+
+        // 1. Fetch staff rows for this user
+        const { data: staffList, error: staffErr } = await supabase
+          .from('staff')
+          .select('*')
+          .or(`user_id.eq.${curUser.id},email.eq.${curUser.email}`);
+
+        if (staffErr) {
+          console.warn('Error fetching staff list:', staffErr);
+          return;
+        }
+
+        // Self-heal: If user has no staff row yet, check or create business
+        if (!staffList || staffList.length === 0) {
+          const { data: directBizList } = await supabase
+            .from('businesses')
             .select('*')
-            .or(`user_id.eq.${curUser.id},email.eq.${curUser.email}`);
+            .eq('email', curUser.email);
 
-          if (isMounted && staffList && staffList.length > 0) {
-            const userBizIds = Array.from(new Set(staffList.map((s: any) => s.business_id).filter(Boolean)));
-            const [bizRes, brRes] = await Promise.all([
-              supabase.from('businesses').select('*').in('id', userBizIds),
-              supabase.from('branches').select('*').in('business_id', userBizIds),
-            ]);
-
-            if (isMounted && bizRes.data && bizRes.data.length > 0) {
-              setBusinesses(bizRes.data);
-              setActiveBusinessId(staffList[0].business_id);
-            }
-            if (isMounted && brRes.data && brRes.data.length > 0) {
-              setBranches(brRes.data);
-              if (staffList[0].branch_id) {
-                setActiveBranchId(staffList[0].branch_id);
-              }
-            }
+          if (directBizList && directBizList.length > 0) {
+            const directBiz = directBizList[0];
+            const { data: brList } = await supabase.from('branches').select('*').eq('business_id', directBiz.id);
+            const brId = brList && brList.length > 0 ? brList[0].id : null;
+            await supabase.from('staff').insert({
+              id: generateUUID(),
+              business_id: directBiz.id,
+              branch_id: brId,
+              user_id: curUser.id,
+              full_name: (curUser as any).user_metadata?.full_name || (curUser as any).full_name || curUser.email?.split('@')[0] || 'Owner',
+              email: curUser.email,
+              role: 'OWNER',
+              pin_code: '1234',
+              is_active: true,
+            });
+            setTimeout(fetchCloudData, 200);
+            return;
+          } else {
+            const rawMeta = (curUser as any).user_metadata;
+            const fallbackName = (curUser as any).full_name || curUser.email?.split('@')[0] || 'My';
+            const defaultBizName = rawMeta?.business_name || (rawMeta?.full_name ? `${rawMeta.full_name}'s Cafe` : `${fallbackName}'s Cafe`);
+            await onboardNewBusiness(defaultBizName, 'Main Branch');
+            return;
           }
         }
 
-        // Fetch tables with qr_codes for active branch
-        const { data: tblData } = await supabase
-          .from('tables')
-          .select('*, qr_code:qr_codes(*)')
-          .eq('branch_id', activeBranch.id);
+        if (isMounted && staffList && staffList.length > 0) {
+          const userBizIds = Array.from(new Set(staffList.map((s: any) => s.business_id).filter(Boolean)));
 
-        if (isMounted && tblData && tblData.length > 0) {
-          const formattedTables: RestaurantTable[] = tblData.map((t: any) => {
-            const rawQr = Array.isArray(t.qr_code) ? t.qr_code[0] : t.qr_code;
-            return {
-              ...t,
-              qr_code: rawQr ? {
-                ...rawQr,
-                qr_url: `${window.location.origin}/menu/${encodeURIComponent(rawQr.code_identifier || t.table_number)}`,
-              } : undefined,
-            };
-          });
-          setTables((prev) => {
-            const others = prev.filter((tb) => tb.branch_id !== activeBranch.id);
-            return [...others, ...formattedTables];
-          });
-        }
+          const [bizRes, brRes] = await Promise.all([
+            supabase.from('businesses').select('*').in('id', userBizIds),
+            supabase.from('branches').select('*').in('business_id', userBizIds),
+          ]);
 
-        // Fetch categories & menu items
-        const [catRes, itemRes] = await Promise.all([
-          supabase.from('menu_categories').select('*').eq('branch_id', activeBranch.id).order('display_order', { ascending: true }),
-          supabase.from('menu_items').select('*, variants:menu_variants(*), addons:menu_addons(*)').eq('branch_id', activeBranch.id),
-        ]);
+          if (isMounted && bizRes.data && bizRes.data.length > 0) {
+            setBusinesses(bizRes.data);
 
-        if (isMounted && catRes.data && catRes.data.length > 0) {
-          setCategories((prev) => {
-            const others = prev.filter((c) => c.branch_id !== activeBranch.id);
-            return [...others, ...catRes.data];
-          });
-        }
+            // Determine active business (prefer currently selected if valid for this user, else first)
+            let targetBiz = bizRes.data.find((b: any) => b.id === activeBusinessId);
+            if (!targetBiz) {
+              targetBiz = bizRes.data.find((b: any) => b.id === staffList[0].business_id) || bizRes.data[0];
+            }
+            setActiveBusinessId(targetBiz.id);
 
-        if (isMounted && itemRes.data && itemRes.data.length > 0) {
-          setMenuItems((prev) => {
-            const others = prev.filter((m) => m.branch_id !== activeBranch.id);
-            return [...others, ...itemRes.data];
-          });
-        }
+            // Determine active branch
+            if (isMounted && brRes.data && brRes.data.length > 0) {
+              setBranches(brRes.data);
+              const bizBranches = brRes.data.filter((br: any) => br.business_id === targetBiz.id);
+              let targetBranch = bizBranches.find((br: any) => br.id === activeBranchId);
+              if (!targetBranch) {
+                targetBranch = bizBranches.find((br: any) => br.id === staffList[0].branch_id) || bizBranches[0] || brRes.data[0];
+              }
+              setActiveBranchId(targetBranch.id);
 
-        // Fetch orders
-        const { data: ordData } = await supabase
-          .from('orders')
-          .select('*, items:order_items(*)')
-          .eq('branch_id', activeBranch.id)
-          .order('created_at', { ascending: false })
-          .limit(50);
+              const currentBranchId = targetBranch.id;
+              const currentBizId = targetBiz.id;
 
-        if (isMounted && ordData && ordData.length > 0) {
-          setOrders((prev) => {
-            const others = prev.filter((o) => o.branch_id !== activeBranch.id);
-            return [...ordData, ...others];
-          });
+              // 2. Fetch tables with qr_codes for this active branch
+              const { data: tblData } = await supabase
+                .from('tables')
+                .select('*, qr_code:qr_codes(*)')
+                .eq('branch_id', currentBranchId);
+
+              if (isMounted && tblData) {
+                const formattedTables: RestaurantTable[] = tblData.map((t: any) => {
+                  const rawQr = Array.isArray(t.qr_code) ? t.qr_code[0] : t.qr_code;
+                  return {
+                    ...t,
+                    qr_code: rawQr ? {
+                      ...rawQr,
+                      qr_url: `${window.location.origin}/menu/${encodeURIComponent(rawQr.code_identifier || t.table_number)}`,
+                    } : undefined,
+                  };
+                });
+                setTables(formattedTables);
+              }
+
+              // 3. Fetch categories & menu items for this active branch
+              const [catRes, itemRes] = await Promise.all([
+                supabase.from('menu_categories').select('*').eq('branch_id', currentBranchId).order('display_order', { ascending: true }),
+                supabase.from('menu_items').select('*, variants:menu_variants(*), addons:menu_addons(*)').eq('branch_id', currentBranchId).order('display_order', { ascending: true }),
+              ]);
+
+              if (isMounted) {
+                setCategories(catRes.data || []);
+                setMenuItems(itemRes.data || []);
+              }
+
+              // 4. Fetch orders for this branch
+              const { data: ordData } = await supabase
+                .from('orders')
+                .select('*, items:order_items(*)')
+                .eq('branch_id', currentBranchId)
+                .order('created_at', { ascending: false })
+                .limit(50);
+
+              if (isMounted) {
+                setOrders(ordData || []);
+              }
+
+              // 5. Fetch customers for this business
+              const { data: custData } = await supabase
+                .from('customers')
+                .select('*')
+                .eq('business_id', currentBizId)
+                .order('created_at', { ascending: false });
+
+              if (isMounted) {
+                setCustomers(custData || []);
+              }
+
+              // 6. Fetch coupons for this business
+              const { data: coupData } = await supabase
+                .from('coupons')
+                .select('*')
+                .eq('business_id', currentBizId);
+
+              if (isMounted) {
+                setCoupons(coupData || []);
+              }
+
+              // 7. Fetch inventory for this branch
+              const { data: invData } = await supabase
+                .from('inventory_items')
+                .select('*')
+                .eq('branch_id', currentBranchId);
+
+              if (isMounted) {
+                setInventory(invData || []);
+              }
+
+              // 8. Fetch marketing campaigns for this business
+              const { data: campData } = await supabase
+                .from('campaigns')
+                .select('*')
+                .eq('business_id', currentBizId)
+                .order('created_at', { ascending: false });
+
+              if (isMounted) {
+                setCampaigns(campData || []);
+              }
+            }
+          }
         }
       } catch (err) {
         console.warn('Supabase cloud hydration note:', err);
@@ -385,10 +524,11 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
 
     fetchCloudData();
+
     return () => {
       isMounted = false;
     };
-  }, [activeBranch.id, activeBusiness.id]);
+  }, [user?.id, activeBusinessId, activeBranchId]);
 
   // Supabase Realtime listeners for orders and tables
   useEffect(() => {
@@ -695,8 +835,8 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const orderNumber = `#ORD-${Math.floor(1000 + Math.random() * 9000)}`;
     const newOrder: Order = {
       id: generateUUID(),
-      business_id: activeBusiness.id,
-      branch_id: activeBranch.id,
+      business_id: orderData.business_id || activeBusiness.id,
+      branch_id: orderData.branch_id || activeBranch.id,
       order_number: orderNumber,
       customer_name: orderData.customer_name || 'Guest Diner',
       customer_phone: orderData.customer_phone || '',
