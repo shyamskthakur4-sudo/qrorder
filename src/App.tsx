@@ -97,6 +97,14 @@ function parseAppRoute(): AppRouteInfo {
     return { isMenu: false, tableCode: null, isAuth: true, authMode: 'reset-password' };
   }
 
+  // Check if hash is a Supabase authentication token callback (e.g. #access_token=...&type=signup)
+  const isSupabaseAuthCallback = hash.includes('access_token=') || hash.includes('refresh_token=');
+
+  // If this is an auth token callback (and not recovery), it is a confirmation or login callback - do not force auth mode
+  if (isSupabaseAuthCallback) {
+    return { isMenu: false, tableCode: null, isAuth: false, authMode: 'login' };
+  }
+
   // 5. Forgot Password path (/forgot, /forgot-password)
   if (
     path.startsWith('/forgot') ||
@@ -111,8 +119,10 @@ function parseAppRoute(): AppRouteInfo {
     path.startsWith('/register') ||
     path.startsWith('/signup') ||
     search.get('auth') === 'register' ||
-    hash.includes('register') ||
-    hash.includes('signup')
+    hash === '#register' ||
+    hash === '#signup' ||
+    hash.startsWith('#/register') ||
+    hash.startsWith('#/signup')
   ) {
     return { isMenu: false, tableCode: null, isAuth: true, authMode: 'signup' };
   }
@@ -121,7 +131,8 @@ function parseAppRoute(): AppRouteInfo {
     path.startsWith('/login') ||
     path.startsWith('/auth') ||
     search.has('login') ||
-    hash.includes('login')
+    hash === '#login' ||
+    hash.startsWith('#/login')
   ) {
     return { isMenu: false, tableCode: null, isAuth: true, authMode: 'login' };
   }

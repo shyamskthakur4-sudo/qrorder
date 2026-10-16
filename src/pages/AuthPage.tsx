@@ -39,6 +39,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     resetPassword,
     updatePassword,
     verifyRecoveryOtp,
+    verifySignupOtp,
     clearPasswordRecoveryState,
     resendConfirmationEmail,
     staffPinLogin,
@@ -53,6 +54,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   const [businessName, setBusinessName] = useState('');
   const [pin, setPin] = useState('');
   const [recoveryCode, setRecoveryCode] = useState('');
+  const [signupCode, setSignupCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -194,6 +196,35 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     }
   };
 
+  const handleDirectSignupVerification = async () => {
+    if (!emailSentData?.email) {
+      error('Missing Email', 'Email address is missing.');
+      return;
+    }
+    const cleanToken = signupCode.trim();
+    if (!cleanToken) {
+      error('Missing Code', 'Please enter the 6-digit confirmation code from your email.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const verified = await verifySignupOtp(emailSentData.email, cleanToken);
+      if (verified) {
+        success('Email Verified! 🎉', 'Your cafe account is now active. Welcome to CafeOS!');
+        setEmailSentData(null);
+        onSuccess?.();
+        return;
+      }
+      error('Verification Failed', 'Could not verify the code. Please check the code or click the confirmation link in your email.');
+    } catch (err: unknown) {
+      const errObj = err as Error;
+      error('Verification Error', errObj?.message || 'Invalid or expired code.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleResendEmail = async () => {
     if (!emailSentData?.email || resendCooldown > 0) return;
     setIsLoading(true);
@@ -282,6 +313,41 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 {emailSentData.type === 'reset' && 'Click the reset link in the email, OR enter the 6-digit verification code below.'}
               </p>
             </div>
+
+            {/* Direct 6-Digit OTP Code entry for instant signup confirmation */}
+            {emailSentData.type === 'signup' && (
+              <div className="text-left bg-slate-950/90 border border-amber-500/30 rounded-2xl p-4 space-y-3 mt-3 shadow-inner">
+                <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
+                  <ShieldCheck className="w-4 h-4 shrink-0" />
+                  <span>Enter 6-Digit Code (or click email link)</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Click the confirmation link in your email, or enter the 6-digit verification code below to activate your cafe workspace:
+                </p>
+
+                <div className="space-y-3">
+                  <Input
+                    label="6-Digit Verification Code"
+                    placeholder="123456"
+                    value={signupCode}
+                    onChange={(e) => setSignupCode(e.target.value)}
+                    maxLength={10}
+                    className="font-mono text-center tracking-widest text-base font-bold text-amber-400"
+                  />
+
+                  <Button
+                    type="button"
+                    variant="primary"
+                    className="w-full text-xs font-bold py-2.5 shadow-md shadow-amber-500/20"
+                    isLoading={isLoading}
+                    onClick={handleDirectSignupVerification}
+                    leftIcon={<ShieldCheck className="w-4 h-4" />}
+                  >
+                    Verify Code & Open Workspace
+                  </Button>
+                </div>
+              </div>
+            )}
 
             {/* Direct 6-Digit OTP Code entry for instant password reset */}
             {emailSentData.type === 'reset' && (

@@ -23,6 +23,7 @@ export interface AuthContextType {
   resetPassword: (email: string) => Promise<boolean>;
   updatePassword: (newPassword: string) => Promise<boolean>;
   verifyRecoveryOtp: (email: string, token: string) => Promise<boolean>;
+  verifySignupOtp: (email: string, token: string) => Promise<boolean>;
   clearPasswordRecoveryState: () => void;
   resendConfirmationEmail: (email: string) => Promise<boolean>;
   staffPinLogin: (pin: string, branchId?: string) => Promise<boolean>;
@@ -139,6 +140,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
+        if (typeof window !== 'undefined' && window.location.hash.includes('access_token') && !window.location.hash.includes('type=recovery')) {
+          window.history.replaceState({}, '', window.location.pathname || '/');
+          window.dispatchEvent(new Event('popstate'));
+        }
+
         const profile: UserProfile = {
           id: session.user.id,
           email: session.user.email || '',
@@ -174,6 +180,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (session?.user) {
+        if (typeof window !== 'undefined' && window.location.hash.includes('access_token') && !window.location.hash.includes('type=recovery')) {
+          window.history.replaceState({}, '', window.location.pathname || '/');
+          window.dispatchEvent(new Event('popstate'));
+        }
+
         const profile: UserProfile = {
           id: session.user.id,
           email: session.user.email || '',
@@ -306,7 +317,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           },
         },
       });
-      if (error) throw error;
+      if (error) {
+        if (error.status === 429 || (error as any).code === 'over_email_send_rate_limit') {
+          throw new Error('Email rate limit reached on Supabase default mailer (max 3/hr on free tier). Please sign in with password or try again shortly.');
+        }
+        throw error;
+      }
       return true;
     } finally {
       setIsLoading(false);
@@ -338,80 +354,70 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             emailRedirectTo: window.location.origin,
           },
         });
-        if (error) throw error;
+        if (error) {
+          if (error.status === 429 || (error as any).code === 'over_email_send_rate_limit') {
+            throw new Error('Email rate limit reached on Supabase default mailer (max 3/hr on free tier). Please wait a few minutes, or configure custom SMTP in Supabase Dashboard for unlimited delivery.');
+          }
+          throw error;
+        }
 
-        if (data.user) {
-          // Attempt immediate login with password since handle_new_user auto-confirms email
-          if (password) {
-            try {
-              const { data: loginData, error: loginErr } = await supabase.auth.signInWithPassword({
-                email: cleanEmail,
-                password,
-              });
-
-              if (!loginErr && loginData?.user) {
-                const loggedInUser: UserProfile = {
-                  id: loginData.user.id,
-                  email: loginData.user.email || cleanEmail,
-                  full_name: cleanName,
-                  created_at: loginData.user.created_at,
-                  updated_at: loginData.user.created_at,
-                };
-                setUser(loggedInUser);
-                setRole('OWNER');
-
-                // Query newly created staff record
-                const { data: st } = await supabase
-                  .from('staff')
-                  .select('*')
-                  .or(`user_id.eq.${loginData.user.id},email.eq.${cleanEmail}`)
-                  .limit(1)
-                  .maybeSingle();
-
-                if (st) {
-                  setStaff(st);
-                }
-
-                return {
-                  success: true,
-                  needsEmailConfirmation: false,
-                  message: 'Account created! Welcome to your restaurant workspace.',
-                  email: cleanEmail,
-                };
-              }
-            } catch (autoLoginErr) {
-              console.warn('Auto sign-in notice after signup:', autoLoginErr);
-            }
+        // 1. Existing user handling:
+        // In Supabase GoTrue, when an email already exists in auth.users, signUp returns
+        // data.user with empty identities: [] to prevent email enumeration, and does NOT send an email.
+        // We dispatch a 1-click magic login link immediately so a secure link definitely arrives in their inbox!
+        if (data.user && (!data.user.identities || data.user.identities.length === 0)) {
+          console.log('User already registered in Supabase. Sending 1-click magic link to their inbox.');
+          try {
+            await supabase.auth.signInWithOtp({
+              email: cleanEmail,
+              options: {
+                emailRedirectTo: window.location.origin,
+                data: {
+                  app_name: 'CafeOS',
+                },
+              },
+            });
+          } catch (otpErr) {
+            console.warn('Could not dispatch magic link to existing user:', otpErr);
           }
 
-          // Check if email confirmation is required as fallback
-          const needsConfirmation = !data.session && data.user && !data.user.email_confirmed_at;
-
-          const newUser: UserProfile = {
-            id: data.user.id,
-            email: data.user.email || cleanEmail,
-            full_name: cleanName,
-            created_at: data.user.created_at,
-            updated_at: data.user.created_at,
+          return {
+            success: true,
+            needsEmailConfirmation: true,
+            message: `This email is already registered with CafeOS. A secure 1-click login link has been sent to ${cleanEmail}. Please check your inbox!`,
+            email: cleanEmail,
           };
+        }
 
-          if (!needsConfirmation) {
-            setUser(newUser);
+        // 2. New user registration:
+        if (data.user) {
+          // If session is already created immediately (e.g. if email confirmation was disabled in Supabase dashboard)
+          if (data.session) {
+            const loggedInUser: UserProfile = {
+              id: data.user.id,
+              email: data.user.email || cleanEmail,
+              full_name: cleanName,
+              created_at: data.user.created_at,
+              updated_at: data.user.created_at,
+            };
+            setUser(loggedInUser);
             setRole('OWNER');
+
             return {
               success: true,
               needsEmailConfirmation: false,
-              message: 'Account created! Welcome to CafeOS.',
-              email: cleanEmail,
-            };
-          } else {
-            return {
-              success: true,
-              needsEmailConfirmation: true,
-              message: `Verification email sent by CafeOS to ${cleanEmail}. Please check your inbox and verify your email.`,
+              message: 'Account created! Welcome to your restaurant workspace.',
               email: cleanEmail,
             };
           }
+
+          // Email confirmation link was dispatched by Supabase to the user's inbox
+          return {
+            success: true,
+            needsEmailConfirmation: true,
+            message: `Verification link sent by CafeOS to ${cleanEmail}. Please check your inbox and click the confirmation link to activate your cafe workspace.`,
+            email: cleanEmail,
+          };
         }
       }
 
@@ -438,7 +444,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
           redirectTo: `${window.location.origin}/reset-password`,
         });
-        if (error) throw error;
+        if (error) {
+          if (error.status === 429 || (error as any).code === 'over_email_send_rate_limit') {
+            throw new Error('Email rate limit reached on Supabase default mailer (max 3/hr on free tier). Please wait a short while before requesting another password reset.');
+          }
+          throw error;
+        }
       }
       return true;
     } finally {
@@ -489,6 +500,61 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const verifySignupOtp = async (email: string, token: string): Promise<boolean> => {
+    setIsLoading(true);
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanToken = token.trim();
+    try {
+      if (isSupabaseConfigured) {
+        let res = await supabase.auth.verifyOtp({
+          email: cleanEmail,
+          token: cleanToken,
+          type: 'signup',
+        });
+        if (res.error) {
+          res = await supabase.auth.verifyOtp({
+            email: cleanEmail,
+            token: cleanToken,
+            type: 'email',
+          });
+        }
+        if (res.error) throw res.error;
+        if (res.data?.user) {
+          const profile: UserProfile = {
+            id: res.data.user.id,
+            email: res.data.user.email || cleanEmail,
+            full_name: res.data.user.user_metadata?.full_name || cleanEmail.split('@')[0],
+            created_at: res.data.user.created_at,
+            updated_at: res.data.user.created_at,
+          };
+          setUser(profile);
+          setRole('OWNER');
+
+          try {
+            const { data: st } = await supabase
+              .from('staff')
+              .select('*')
+              .or(`user_id.eq.${res.data.user.id},email.eq.${cleanEmail}`)
+              .limit(1)
+              .maybeSingle();
+            if (st) {
+              setStaff(st);
+            }
+          } catch {}
+
+          if (typeof window !== 'undefined' && window.history.replaceState) {
+            window.history.replaceState({}, '', '/');
+            window.dispatchEvent(new Event('popstate'));
+          }
+          return true;
+        }
+      }
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const clearPasswordRecoveryState = () => {
     setIsPasswordRecovery(false);
     if (typeof window !== 'undefined' && window.history.replaceState) {
@@ -508,7 +574,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             emailRedirectTo: window.location.origin,
           },
         });
-        if (error) throw error;
+        if (error) {
+          console.warn('Signup resend note, attempting 1-click magic link fallback:', error.message);
+          const { error: otpErr } = await supabase.auth.signInWithOtp({
+            email: cleanEmail,
+            options: {
+              emailRedirectTo: window.location.origin,
+              data: { app_name: 'CafeOS' },
+            },
+          });
+          if (otpErr) throw error;
+        }
       }
       return true;
     } finally {
@@ -612,6 +688,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         resetPassword,
         updatePassword,
         verifyRecoveryOtp,
+        verifySignupOtp,
         clearPasswordRecoveryState,
         resendConfirmationEmail,
         staffPinLogin,
