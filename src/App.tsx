@@ -6,7 +6,7 @@ import { DashboardLayout } from './components/layout/DashboardLayout';
 import { NavigationPage } from './components/layout/Sidebar';
 import { AuthModal } from './components/auth/AuthModal';
 import { Button } from './components/ui/Button';
-import { Sparkles, Lock, Loader2 } from 'lucide-react';
+import { Sparkles, Lock, Loader2, ShieldAlert } from 'lucide-react';
 
 // Lazy loaded page components for optimal production bundle splitting
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
@@ -149,7 +149,7 @@ function parseAppRoute(): AppRouteInfo {
 }
 
 const MainApp: React.FC = () => {
-  const { isAuthenticated, isPasswordRecovery } = useAuth();
+  const { isAuthenticated, isPasswordRecovery, user, role } = useAuth();
   const [routeInfo, setRouteInfo] = useState<AppRouteInfo>(() => parseAppRoute());
   const [currentPage, setCurrentPage] = useState<NavigationPage>('dashboard');
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -215,6 +215,10 @@ const MainApp: React.FC = () => {
   }
 
   const handleNavigate = (page: NavigationPage) => {
+    if (page === 'super-admin' && !user?.is_superadmin && role !== 'SUPER_ADMIN') {
+      setCurrentPage('dashboard');
+      return;
+    }
     if (page === 'customer-ordering') {
       window.history.pushState({}, '', '/menu');
       setRouteInfo(parseAppRoute());
@@ -285,8 +289,28 @@ const MainApp: React.FC = () => {
           {currentPage === 'inventory' && <InventoryPage />}
           {currentPage === 'staff' && <StaffPage />}
           {currentPage === 'analytics' && <AnalyticsPage />}
-          {currentPage === 'settings' && <SettingsPage />}
-          {currentPage === 'super-admin' && <SuperAdminPage />}
+          {currentPage === 'super-admin' && (
+            user?.is_superadmin || role === 'SUPER_ADMIN' ? (
+              <SuperAdminPage />
+            ) : (
+              <div className="p-12 text-center max-w-md mx-auto">
+                <div className="w-16 h-16 rounded-3xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 mx-auto mb-4">
+                  <ShieldAlert className="w-8 h-8" />
+                </div>
+                <h2 className="text-xl font-bold text-slate-100 font-['Outfit']">Access Denied</h2>
+                <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+                  Only verified SaaS Platform Super-Administrators have permission to access the multi-tenant console.
+                </p>
+                <Button
+                  variant="primary"
+                  className="mt-6 text-xs"
+                  onClick={() => setCurrentPage('dashboard')}
+                >
+                  Return to Dashboard
+                </Button>
+              </div>
+            )
+          )}
           {currentPage === 'customer-ordering' && (
             <CustomerOrderingPage
               isStandalone={false}

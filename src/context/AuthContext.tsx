@@ -41,6 +41,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const parsed = JSON.parse(saved);
         if (parsed && !parsed.email?.includes('roastbrew.com')) {
+          if (parsed.is_superadmin && parsed.email !== 'shyamskthakur@gmail.com' && parsed.email !== 'admin@cafeos.app') {
+            parsed.is_superadmin = false;
+          }
           return parsed;
         }
       } catch {}
@@ -62,7 +65,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const [role, setRole] = useState<StaffRole>(() => {
-    return (localStorage.getItem('cafeos_role') as StaffRole) || 'OWNER';
+    const savedRole = localStorage.getItem('cafeos_role') as StaffRole;
+    if (savedRole === 'SUPER_ADMIN') {
+      const savedUserStr = localStorage.getItem('cafeos_user');
+      if (savedUserStr) {
+        try {
+          const u = JSON.parse(savedUserStr);
+          if (u?.is_superadmin || u?.email === 'shyamskthakur@gmail.com' || u?.email === 'admin@cafeos.app') {
+            return 'SUPER_ADMIN';
+          }
+        } catch {}
+      }
+      return 'OWNER';
+    }
+    return savedRole || 'OWNER';
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -145,10 +161,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           window.dispatchEvent(new Event('popstate'));
         }
 
+        let isSuperAdmin = session.user.email === 'admin@cafeos.app' || session.user.email === 'shyamskthakur@gmail.com';
+        try {
+          const { data: prof } = await supabase
+            .from('profiles')
+            .select('is_superadmin')
+            .eq('id', session.user.id)
+            .maybeSingle();
+          if (prof?.is_superadmin) {
+            isSuperAdmin = true;
+          }
+        } catch {}
+
         const profile: UserProfile = {
           id: session.user.id,
           email: session.user.email || '',
           full_name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Owner',
+          is_superadmin: isSuperAdmin,
           created_at: session.user.created_at,
           updated_at: session.user.created_at,
         };
@@ -164,8 +193,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (st) {
             setStaff(st);
             setRole(st.role as StaffRole);
+          } else if (isSuperAdmin) {
+            setRole('SUPER_ADMIN');
+          } else {
+            setRole('OWNER');
           }
-        } catch {}
+        } catch {
+          if (isSuperAdmin) setRole('SUPER_ADMIN');
+        }
       } else {
         setUser(null);
         setStaff(null);
@@ -185,10 +220,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           window.dispatchEvent(new Event('popstate'));
         }
 
+        let isSuperAdmin = session.user.email === 'admin@cafeos.app' || session.user.email === 'shyamskthakur@gmail.com';
+        try {
+          const { data: prof } = await supabase
+            .from('profiles')
+            .select('is_superadmin')
+            .eq('id', session.user.id)
+            .maybeSingle();
+          if (prof?.is_superadmin) {
+            isSuperAdmin = true;
+          }
+        } catch {}
+
         const profile: UserProfile = {
           id: session.user.id,
           email: session.user.email || '',
           full_name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Owner',
+          is_superadmin: isSuperAdmin,
           created_at: session.user.created_at,
           updated_at: session.user.created_at,
         };
@@ -204,6 +252,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (st) {
             setStaff(st);
             setRole(st.role as StaffRole);
+          } else if (isSuperAdmin) {
+            setRole('SUPER_ADMIN');
+          } else {
+            setRole('OWNER');
           }
         } catch {}
       } else {
@@ -227,10 +279,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
         if (error) throw error;
         if (data.user) {
+          let isSuperAdmin = cleanEmail === 'admin@cafeos.app' || cleanEmail === 'shyamskthakur@gmail.com';
+          try {
+            const { data: prof } = await supabase
+              .from('profiles')
+              .select('is_superadmin')
+              .eq('id', data.user.id)
+              .maybeSingle();
+            if (prof?.is_superadmin) {
+              isSuperAdmin = true;
+            }
+          } catch {}
+
           const loggedInUser: UserProfile = {
             id: data.user.id,
             email: data.user.email || cleanEmail,
             full_name: data.user.user_metadata?.full_name || cleanEmail.split('@')[0],
+            is_superadmin: isSuperAdmin,
             created_at: data.user.created_at,
             updated_at: data.user.created_at,
           };
@@ -248,11 +313,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (staffData) {
               setStaff(staffData);
               setRole(staffData.role);
+            } else if (isSuperAdmin) {
+              setRole('SUPER_ADMIN');
             } else {
               setRole('OWNER');
             }
           } catch {
-            setRole('OWNER');
+            setRole(isSuperAdmin ? 'SUPER_ADMIN' : 'OWNER');
           }
 
           return true;
@@ -641,12 +708,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const switchRolePreview = (newRole: StaffRole) => {
+    // Strictly prevent non-superadmins from escalating themselves to SUPER_ADMIN
+    if (
+      newRole === 'SUPER_ADMIN' &&
+      !user?.is_superadmin &&
+      user?.email !== 'admin@cafeos.app' &&
+      user?.email !== 'shyamskthakur@gmail.com'
+    ) {
+      console.warn('Unauthorized attempt to switch to SUPER_ADMIN role blocked.');
+      return;
+    }
+
     setRole(newRole);
     if (newRole === 'SUPER_ADMIN') {
       setUser((prev) => ({
         id: prev?.id || 'super-admin-01',
-        email: 'admin@cafeos.app',
-        full_name: 'Platform Super Admin',
+        email: prev?.email || 'admin@cafeos.app',
+        full_name: prev?.full_name || 'Platform Super Admin',
         is_superadmin: true,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -655,15 +733,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const match = INITIAL_STAFF.find((s) => s.role === newRole);
       if (match) {
         setStaff(match);
-        setUser({
+        setUser((prev) => ({
           id: match.user_id || 'usr-' + newRole.toLowerCase(),
-          email: match.email,
-          full_name: match.full_name,
+          email: prev?.email || match.email,
+          full_name: prev?.full_name || match.full_name,
           phone: match.phone,
-          is_superadmin: false,
+          is_superadmin: prev?.is_superadmin || false,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-        });
+        }));
       }
     }
   };

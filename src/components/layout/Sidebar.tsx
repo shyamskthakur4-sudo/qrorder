@@ -318,27 +318,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
             );
           })}
 
-          {/* Super Admin Access Tab */}
-          <div className="pt-3 mt-3 border-t border-slate-800/80">
-            <button
-              onClick={() => {
-                onNavigate('super-admin');
-                onClose();
-              }}
-              className={cn(
-                'w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer',
-                currentPage === 'super-admin'
-                  ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                  : 'text-purple-400/80 hover:text-purple-300 hover:bg-purple-950/20'
-              )}
-            >
-              <div className="flex items-center gap-2">
-                <ShieldAlert className="w-4 h-4 text-purple-400" />
-                <span>Super Admin SaaS Portal</span>
-              </div>
-              <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-            </button>
-          </div>
+          {/* Super Admin Access Tab - Strictly restricted to verified platform Super Admins */}
+          {(user?.is_superadmin || role === 'SUPER_ADMIN') && (
+            <div className="pt-3 mt-3 border-t border-slate-800/80">
+              <button
+                onClick={() => {
+                  onNavigate('super-admin');
+                  onClose();
+                }}
+                className={cn(
+                  'w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer',
+                  currentPage === 'super-admin'
+                    ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                    : 'text-purple-400/80 hover:text-purple-300 hover:bg-purple-950/20'
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4 text-purple-400" />
+                  <span>Super Admin SaaS Portal</span>
+                </div>
+                <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+              </button>
+            </div>
+          )}
         </nav>
 
         {/* Staff Role Switcher & User Footer */}
@@ -361,7 +363,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <p className="text-[10px] text-slate-400 uppercase font-bold px-2 py-1">
                   Preview As Staff Role:
                 </p>
-                {(['OWNER', 'MANAGER', 'CASHIER', 'KITCHEN', 'WAITER', 'SUPER_ADMIN'] as StaffRole[]).map(
+                {((user?.is_superadmin || role === 'SUPER_ADMIN'
+                  ? ['OWNER', 'MANAGER', 'CASHIER', 'KITCHEN', 'WAITER', 'SUPER_ADMIN']
+                  : ['OWNER', 'MANAGER', 'CASHIER', 'KITCHEN', 'WAITER']) as StaffRole[]).map(
                   (r) => (
                     <button
                       key={r}
