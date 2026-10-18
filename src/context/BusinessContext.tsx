@@ -106,23 +106,41 @@ const isDemoData = (raw: string | null) => {
     s.includes('hot filter coffee') ||
     s.includes('grilled paneer tikka') ||
     s.includes('classic veg burger') ||
+    s.includes('spanish latte with sweet condensed foam') ||
+    s.includes('creamy burrata & sun-dried tomato fettuccine') ||
     s.includes('indiranagar') ||
     s.includes('koramangala') ||
     s.includes('city center plaza') ||
+    s.includes('b1111111') ||
+    s.includes('ba111111') ||
+    s.includes('fa111111') ||
+    s.includes('fa222222') ||
+    s.includes('ord-test') ||
+    s.includes('99999999-9999') ||
     s.includes('biz-01') ||
     s.includes('biz-02') ||
     s.includes('branch-01') ||
     s.includes('branch-02') ||
     s.includes('tbl-01') ||
     s.includes('tbl-02') ||
+    s.includes('tbl-1') ||
+    s.includes('tbl-2') ||
+    s.includes('tbl-3') ||
     s.includes('table-01') ||
     s.includes('cat-01') ||
     s.includes('cat-02') ||
     s.includes('cat-03') ||
+    s.includes('cat-beverages') ||
+    s.includes('cat-snacks') ||
+    s.includes('cat-mains') ||
     s.includes('item-01') ||
     s.includes('item-02') ||
     s.includes('item-03') ||
     s.includes('item-04') ||
+    s.includes('item-1') ||
+    s.includes('item-2') ||
+    s.includes('item-3') ||
+    s.includes('item-4') ||
     s.includes('cust-01') ||
     s.includes('cust-02') ||
     s.includes('ord-01') ||
@@ -511,8 +529,8 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               if (itemRes.error) console.error('Menu items fetch error:', itemRes.error);
 
               if (isMounted) {
-                setCategories(catRes.data || []);
-                setMenuItems(itemRes.data || []);
+                setCategories((catRes.data || []).filter((c: any) => !isDemoData(JSON.stringify(c))));
+                setMenuItems((itemRes.data || []).filter((m: any) => !isDemoData(JSON.stringify(m))));
               }
 
               // 4. Fetch orders for this business
@@ -526,7 +544,10 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               if (ordErr) console.error('Orders cloud fetch error:', ordErr);
 
               if (isMounted) {
-                setOrders(ordData || []);
+                const cleanOrd = (ordData || []).filter(
+                  (o: any) => o.order_number !== '#ORD-TEST' && !isDemoData(JSON.stringify(o))
+                );
+                setOrders(cleanOrd);
               }
 
               // 5. Fetch customers for this business
@@ -537,7 +558,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 .order('created_at', { ascending: false });
 
               if (isMounted) {
-                setCustomers(custData || []);
+                setCustomers((custData || []).filter((c: any) => !isDemoData(JSON.stringify(c))));
               }
 
               // 6. Fetch coupons for this business
@@ -547,7 +568,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 .eq('business_id', currentBizId);
 
               if (isMounted) {
-                setCoupons(coupData || []);
+                setCoupons((coupData || []).filter((cp: any) => !isDemoData(JSON.stringify(cp))));
               }
 
               // 7. Fetch inventory for this branch
