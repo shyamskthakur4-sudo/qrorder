@@ -479,16 +479,20 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 }
               }
 
-              // 4. Fetch orders for this branch
-              const { data: ordData } = await supabase
+              // 4. Fetch orders for this business
+              const { data: ordData, error: ordErr } = await supabase
                 .from('orders')
                 .select('*, items:order_items(*)')
-                .eq('branch_id', currentBranchId)
+                .eq('business_id', currentBizId)
                 .order('created_at', { ascending: false })
-                .limit(50);
+                .limit(100);
+
+              if (ordErr) console.error('Orders cloud fetch error:', ordErr);
 
               if (isMounted) {
-                setOrders(ordData || []);
+                if (ordData && ordData.length > 0) {
+                  setOrders(ordData);
+                }
               }
 
               // 5. Fetch customers for this business
@@ -556,13 +560,23 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'orders' },
-        (payload) => {
+        async (payload) => {
           if (payload.eventType === 'INSERT') {
-            const newOrder = payload.new as Order;
-            if (newOrder.business_id === activeBusiness.id) {
+            const incoming = payload.new as Order;
+            if (incoming.business_id === activeBusiness.id) {
+              // Immediately fetch full order with items so items are never missing
+              const { data: fullOrder } = await supabase
+                .from('orders')
+                .select('*, items:order_items(*)')
+                .eq('id', incoming.id)
+                .maybeSingle();
+
+              const orderToAdd = fullOrder || incoming;
               setOrders((prev) => {
-                if (prev.some((o) => o.id === newOrder.id)) return prev;
-                return [newOrder, ...prev];
+                if (prev.some((o) => o.id === orderToAdd.id)) {
+                  return prev.map((o) => (o.id === orderToAdd.id ? { ...o, ...orderToAdd } : o));
+                }
+                return [orderToAdd, ...prev];
               });
               playKitchenAlert();
             }
@@ -574,6 +588,35 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           }
         }
       )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'order_items' },
+        (payload) => {
+          const newItem = payload.new as OrderItem;
+          if (newItem.order_id) {
+            setOrders((prev) =>
+              prev.map((o) => {
+                if (o.id === newItem.order_id) {
+                  const currentItems = o.items || [];
+                  if (currentItems.some((it) => it.id === newItem.id)) return o;
+                  return { ...o, items: [...currentItems, newItem] };
+                }
+                return o;
+              })
+            );
+          }
+        }
+      )
+      .on('broadcast', { event: 'new_order_placed' }, (payload: any) => {
+        const incomingOrder = payload?.payload?.order as Order;
+        if (incomingOrder && incomingOrder.business_id === activeBusiness.id) {
+          setOrders((prev) => {
+            if (prev.some((o) => o.id === incomingOrder.id)) return prev;
+            return [incomingOrder, ...prev];
+          });
+          playKitchenAlert();
+        }
+      })
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'tables' },
@@ -904,10 +947,22 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const createOrder = async (orderData: Partial<Order>): Promise<Order> => {
     const orderNumber = `#ORD-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const targetBizId = isValidUUID(orderData.business_id) ? orderData.business_id! : activeBusiness.id;
+    let targetBranchId = isValidUUID(orderData.branch_id) ? orderData.branch_id! : activeBranch.id;
+
+    // Ensure targetBranchId is a valid branch for targetBizId
+    if (!isValidUUID(targetBranchId)) {
+      const bFound = branches.find((b) => b.business_id === targetBizId && isValidUUID(b.id));
+      if (bFound) {
+        targetBranchId = bFound.id;
+      }
+    }
+
     const newOrder: Order = {
       id: generateUUID(),
-      business_id: orderData.business_id || activeBusiness.id,
-      branch_id: orderData.branch_id || activeBranch.id,
+      business_id: targetBizId,
+      branch_id: targetBranchId,
       order_number: orderNumber,
       customer_name: orderData.customer_name || 'Guest Diner',
       customer_phone: orderData.customer_phone || '',
@@ -938,7 +993,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (orderData.customer_phone) {
       setCustomers((prev) => {
         const existing = prev.find(
-          (c) => c.business_id === activeBusiness.id && c.phone === orderData.customer_phone
+          (c) => c.business_id === targetBizId && c.phone === orderData.customer_phone
         );
         if (existing) {
           return prev.map((c) =>
@@ -955,7 +1010,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         } else {
           const newCust: Customer = {
             id: generateUUID(),
-            business_id: activeBusiness.id,
+            business_id: targetBizId,
             name: orderData.customer_name || 'Guest Diner',
             phone: orderData.customer_phone || '',
             total_spending: newOrder.total_amount,
@@ -976,7 +1031,14 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     // Sync order to Supabase in background
     if (isSupabaseConfigured) {
       try {
-        const dbTableId = isValidUUID(orderData.table_id) ? orderData.table_id : null;
+        let dbTableId: string | null = null;
+        if (orderData.table_id && isValidUUID(orderData.table_id)) {
+          const tableExists = tables.some((t) => t.id === orderData.table_id);
+          if (tableExists) {
+            dbTableId = orderData.table_id;
+          }
+        }
+
         const { error: ordErr } = await supabase
           .from('orders')
           .insert({
@@ -987,7 +1049,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             order_number: newOrder.order_number,
             status: newOrder.status,
             customer_name: newOrder.customer_name,
-            customer_phone: newOrder.customer_phone,
+            customer_phone: newOrder.customer_phone || null,
             subtotal: newOrder.subtotal,
             tax_amount: newOrder.tax_amount,
             discount_amount: newOrder.discount_amount,
@@ -996,25 +1058,44 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             total_amount: newOrder.total_amount,
             payment_status: newOrder.payment_status,
             payment_method: newOrder.payment_method,
-            notes: newOrder.notes,
+            notes: newOrder.notes || null,
           });
 
-        if (!ordErr && newOrder.items && newOrder.items.length > 0) {
-          const itemsToInsert = newOrder.items.map((it) => ({
-            id: generateUUID(),
-            order_id: newOrder.id,
-            menu_item_id: isValidUUID(it.menu_item_id) ? it.menu_item_id : null,
-            item_name: it.item_name,
-            variant_name: it.variant_name || null,
-            unit_price: it.unit_price,
-            quantity: it.quantity,
-            total_price: it.total_price,
-            notes: it.notes || null,
-          }));
-          await supabase.from('order_items').insert(itemsToInsert);
+        if (ordErr) {
+          console.error('Supabase order insert error:', ordErr);
+        } else if (newOrder.items && newOrder.items.length > 0) {
+          const itemsToInsert = newOrder.items.map((it) => {
+            const isKnownMenu = it.menu_item_id && isValidUUID(it.menu_item_id) && menuItems.some((m) => m.id === it.menu_item_id);
+            return {
+              id: generateUUID(),
+              order_id: newOrder.id,
+              menu_item_id: isKnownMenu ? it.menu_item_id : null,
+              item_name: it.item_name,
+              variant_name: it.variant_name || null,
+              unit_price: it.unit_price,
+              quantity: it.quantity,
+              total_price: it.total_price,
+              notes: it.notes || null,
+              status: 'ORDERED',
+            };
+          });
+          const { error: itemInsertErr } = await supabase.from('order_items').insert(itemsToInsert);
+          if (itemInsertErr) console.error('Order items insert error:', itemInsertErr);
+        }
+
+        // Dual-Layer Instant Realtime Broadcast to notify all cafe owner/staff/KDS screens
+        try {
+          const realtimeChannel = supabase.channel(`cafeos_realtime_${targetBizId}`);
+          await realtimeChannel.send({
+            type: 'broadcast',
+            event: 'new_order_placed',
+            payload: { order: newOrder },
+          });
+        } catch (bcErr) {
+          console.warn('Realtime order broadcast notice:', bcErr);
         }
       } catch (e) {
-        console.warn('Supabase order insert notice:', e);
+        console.error('Supabase order insert exception:', e);
       }
     }
 
@@ -1042,6 +1123,14 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     if (isSupabaseConfigured && isValidUUID(orderId)) {
       supabase.from('orders').update({ status, updated_at: new Date().toISOString() }).eq('id', orderId).then();
+
+      try {
+        supabase.channel(`cust_order_${orderId}`).send({
+          type: 'broadcast',
+          event: 'order_status_updated',
+          payload: { orderId, status },
+        });
+      } catch {}
     }
   };
 

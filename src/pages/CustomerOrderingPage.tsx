@@ -170,12 +170,14 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
         }
 
         // 2. Query tables directly if qr_code was not found
-        const { data: tblData } = await supabase
+        const tableBaseQuery = supabase
           .from('tables')
           .select('*, qr_code:qr_codes(*), business:businesses(*), branch:branches(*)')
-          .or(`id.eq.${clean},table_number.ilike.${clean}`)
-          .limit(1)
-          .maybeSingle();
+          .limit(1);
+
+        const { data: tblData } = isValidUUID(clean)
+          ? await tableBaseQuery.or(`id.eq.${clean},table_number.ilike.${clean}`).maybeSingle()
+          : await tableBaseQuery.ilike('table_number', clean).maybeSingle();
 
         if (tblData && tblData.business) {
           if (!isMounted) return;
@@ -410,6 +412,16 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
           }
         }
       )
+      .on('broadcast', { event: 'order_status_updated' }, (payload: any) => {
+        const data = payload?.payload;
+        if (data && data.orderId === placedOrderId) {
+          setPlacedOrder((prev) => (prev ? { ...prev, status: data.status } : null));
+          if (data.status === 'COMPLETED' && !hasAutoPromptedReview) {
+            setIsReviewModalOpen(true);
+            setHasAutoPromptedReview(true);
+          }
+        }
+      })
       .subscribe();
 
     return () => {
