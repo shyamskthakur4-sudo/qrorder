@@ -171,7 +171,7 @@ export const showLockScreenNotification = async ({
   // On Android and iOS PWA, ServiceWorkerRegistration.showNotification is REQUIRED
   if ('serviceWorker' in navigator) {
     try {
-      let reg = await navigator.serviceWorker.getRegistration();
+      let reg: ServiceWorkerRegistration | null | undefined = await navigator.serviceWorker.getRegistration();
       if (!reg) {
         reg = await registerServiceWorker();
       }

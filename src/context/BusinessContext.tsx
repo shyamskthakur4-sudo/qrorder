@@ -4,10 +4,12 @@ import {
   Branch,
   RestaurantTable,
   Order,
+  OrderItem,
   OrderStatus,
   MenuItem,
   MenuCategory,
   Customer,
+  CustomerSegment,
   Coupon,
   InventoryItem,
   Campaign,
@@ -1114,13 +1116,13 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         business_id: targetBizId,
         name: cleanName,
         phone: cleanPhone,
-        email: existingCust?.email || null,
+        email: existingCust?.email || undefined,
         total_spending: newSpend,
         visit_count: newVisits,
         last_visit: new Date().toISOString(),
         loyalty_points: newPoints,
         segment: newSegment,
-        notes: existingCust?.notes || null,
+        notes: existingCust?.notes || undefined,
         created_at: existingCust?.created_at || new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -1129,17 +1131,20 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       newOrder.customer_id = targetCustomerId;
 
       // Update local state immediately for instant CRM responsiveness
-      setCustomers((prev) => {
-        const idx = prev.findIndex(
-          (c) => c.id === preparedCustomer!.id || (c.business_id === targetBizId && c.phone === cleanPhone)
-        );
-        if (idx >= 0) {
-          const updated = [...prev];
-          updated[idx] = preparedCustomer!;
-          return updated;
-        }
-        return [preparedCustomer!, ...prev];
-      });
+      if (preparedCustomer) {
+        const custToSave = preparedCustomer;
+        setCustomers((prev) => {
+          const idx = prev.findIndex(
+            (c) => c.id === custToSave.id || (c.business_id === targetBizId && c.phone === cleanPhone)
+          );
+          if (idx >= 0) {
+            const updated = [...prev];
+            updated[idx] = custToSave;
+            return updated;
+          }
+          return [custToSave, ...prev];
+        });
+      }
     }
 
     playKitchenAlert();
@@ -1175,7 +1180,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               console.error('Supabase customer CRM upsert error:', custErr);
             } else if (savedCust) {
               targetCustomerId = savedCust.id;
-              newOrder.customer_id = targetCustomerId;
+              newOrder.customer_id = targetCustomerId || undefined;
             }
           } catch (cEx) {
             console.warn('Customer upsert notice:', cEx);

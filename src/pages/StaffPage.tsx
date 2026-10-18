@@ -124,7 +124,12 @@ export const StaffPage: React.FC = () => {
 
     setStaffList((prev) => [...prev, newStaff]);
     if (isSupabaseConfigured) {
-      supabase.from('staff').insert([newStaff]).catch(console.error);
+      supabase
+        .from('staff')
+        .insert([newStaff])
+        .then(({ error: staffErr }) => {
+          if (staffErr) console.error('Staff insertion error:', staffErr);
+        });
     }
     success('Staff Member Added', `${fullName} invited as ${staffRole} with PIN ${pinCode}.`);
     setFullName('');

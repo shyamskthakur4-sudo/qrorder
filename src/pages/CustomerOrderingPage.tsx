@@ -24,8 +24,8 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useBusiness } from '../context/BusinessContext';
-import { Business, Branch, RestaurantTable, MenuCategory, MenuItem, MenuVariant, MenuAddon, OrderItem, OrderItemAddon, Order, Coupon } from '../types';
-import { formatCurrency, generateUUID } from '../lib/utils';
+import { Business, Branch, RestaurantTable, MenuCategory, MenuItem, MenuVariant, MenuAddon, OrderItem, OrderItemAddon, Order, OrderStatus, Coupon } from '../types';
+import { formatCurrency, generateUUID, isValidUUID } from '../lib/utils';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
@@ -1667,6 +1667,8 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
             </div>
           </div>
         )}
+      </Modal>
+
       {/* Swiggy/Zomato Instant Lock-Screen VIP Notification Modal */}
       <Modal
         isOpen={isVipNotifModalOpen}

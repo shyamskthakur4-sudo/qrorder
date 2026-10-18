@@ -154,7 +154,7 @@ export const CouponsPage: React.FC = () => {
               </div>
             </Card>
           );
-        })}
+        }))}
       </div>
 
       {/* Create Coupon Modal */}
