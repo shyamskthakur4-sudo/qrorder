@@ -99,7 +99,17 @@ export const requestNotificationPermission = async (options?: {
   try {
     // 2. CRITICAL: Request permission IMMEDIATELY without awaiting service worker first,
     // to ensure the browser user-gesture activation is active!
-    const permission = await Notification.requestPermission();
+    let permission: NotificationPermission;
+    try {
+      const res = Notification.requestPermission();
+      if (res && typeof (res as any).then === 'function') {
+        permission = await res;
+      } else {
+        permission = await new Promise((resolve) => Notification.requestPermission(resolve));
+      }
+    } catch {
+      permission = await new Promise((resolve) => Notification.requestPermission(resolve));
+    }
 
     // 3. Register service worker in background once permission is granted
     registerServiceWorker().catch(() => {});

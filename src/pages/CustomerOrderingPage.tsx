@@ -301,21 +301,18 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
     // 1. Warm-up and register Service Worker immediately on mount
     registerServiceWorker();
 
-    // 2. Automatically prompt customer when scanning QR code if permissions not yet decided
+    // 2. Automatically prompt customer when scanning QR code as soon as menu is ready if permissions not yet decided
     if (typeof window !== 'undefined' && 'Notification' in window) {
-      setNotificationPerm(Notification.permission);
-      if (Notification.permission === 'default') {
-        const isDismissed = sessionStorage.getItem('cafeos_vip_notif_dismissed');
-        if (!isDismissed) {
-          // Open high-converting Swiggy-style modal shortly after menu render
-          const timer = setTimeout(() => {
-            setIsVipNotifModalOpen(true);
-          }, 900);
-          return () => clearTimeout(timer);
-        }
+      const currentPerm = Notification.permission;
+      setNotificationPerm(currentPerm);
+      if (currentPerm === 'default' && !isCloudLoading) {
+        const timer = setTimeout(() => {
+          setIsVipNotifModalOpen(true);
+        }, 350);
+        return () => clearTimeout(timer);
       }
     }
-  }, []);
+  }, [isCloudLoading]);
 
   const handleRequestNotifications = async () => {
     try {
@@ -1688,70 +1685,94 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
       {/* Swiggy/Zomato Instant Lock-Screen VIP Notification Modal */}
       <Modal
         isOpen={isVipNotifModalOpen}
-        onClose={() => {
-          setIsVipNotifModalOpen(false);
-          if (typeof window !== 'undefined') {
-            sessionStorage.setItem('cafeos_vip_notif_dismissed', 'true');
-          }
-        }}
-        title={
-          <div className="flex items-center gap-2 text-amber-400">
-            <span className="text-xl">🔔</span>
-            <span className="font-['Outfit'] font-bold">Instant Lock-Screen Live Updates</span>
-          </div>
-        }
-        description="Just like Swiggy & Zomato — track your food live without keeping your screen on!"
+        onClose={() => setIsVipNotifModalOpen(false)}
         maxWidth="sm"
+        showCloseButton={true}
       >
         <div className="space-y-4">
-          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-amber-500/20 via-orange-500/10 to-rose-500/20 border border-amber-500/30 p-5 text-center shadow-inner">
-            <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-3xl shadow-lg shadow-amber-500/20 animate-bounce">
-              🔔
+          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-amber-500/25 via-orange-500/15 to-rose-500/20 border-2 border-amber-500/40 p-5 text-center shadow-inner">
+            <div className="relative w-16 h-16 mx-auto mb-3 flex items-center justify-center">
+              <span className="absolute inset-0 rounded-2xl bg-amber-400/20 animate-ping" />
+              <span className="absolute inset-1 rounded-2xl bg-amber-500/30 animate-pulse" />
+              <div className="relative w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-500 text-slate-950 flex items-center justify-center text-3xl shadow-lg shadow-amber-500/40">
+                🔔
+              </div>
             </div>
+
+            <div className="flex items-center justify-center gap-1.5 mb-1.5">
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/30 flex items-center gap-1">
+                <Flame className="w-3 h-3 fill-current" />
+                <span>Swiggy & Zomato Style Alert</span>
+              </span>
+            </div>
+
             <h3 className="text-base font-extrabold text-slate-100 font-['Outfit']">
-              Live Cooking & Serving Alerts!
+              Live Cooking & Serving Updates!
             </h3>
-            <p className="text-xs text-slate-300 mt-1 max-w-xs mx-auto">
-              Get instant push notifications on your phone lock screen with vibration and chime when the chef starts preparing and when food is ready.
+            <p className="text-xs text-slate-300 mt-1 max-w-xs mx-auto leading-relaxed">
+              Tap <strong>"Allow Notifications"</strong> on the prompt to track your food live on your phone lock screen without keeping this page open.
             </p>
 
-            <div className="mt-4 grid grid-cols-1 gap-2.5 text-left">
-              <div className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-900/80 border border-slate-800 text-xs text-slate-200">
-                <span className="text-base">🔥</span>
-                <span><strong>Live Cooking Status:</strong> Sizzling in kitchen</span>
+            <div className="mt-3.5 space-y-2 text-left">
+              <div className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-200">
+                <span className="text-base shrink-0">🍳</span>
+                <div className="min-w-0">
+                  <strong className="text-amber-300 block">Live Kitchen Prep</strong>
+                  <span className="text-[10px] text-slate-400">Alerts when chef starts cooking your dishes</span>
+                </div>
               </div>
-              <div className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-900/80 border border-slate-800 text-xs text-slate-200">
-                <span className="text-base">🛎️</span>
-                <span><strong>Instant Chime & Vibration:</strong> Hot & ready at Table {effectiveTable?.table_number || '01'}</span>
+              <div className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-200">
+                <span className="text-base shrink-0">🛎️</span>
+                <div className="min-w-0">
+                  <strong className="text-emerald-300 block">Hot & Ready Chime</strong>
+                  <span className="text-[10px] text-slate-400">Chimes & vibrates when food is ready at Table {effectiveTable?.table_number || '01'}</span>
+                </div>
               </div>
-              <div className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-900/80 border border-slate-800 text-xs text-slate-200">
-                <span className="text-base">🎁</span>
-                <span><strong>Secret VIP Flash Deals:</strong> 20% off table discounts</span>
+              <div className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-200">
+                <span className="text-base shrink-0">📱</span>
+                <div className="min-w-0">
+                  <strong className="text-purple-300 block">Lock Screen Push</strong>
+                  <span className="text-[10px] text-slate-400">Works even if phone screen is locked or asleep</span>
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Button
-              variant="primary"
-              className="w-full py-3 text-sm font-bold bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-slate-950 shadow-lg shadow-amber-500/25 flex items-center justify-center gap-2"
-              onClick={handleRequestNotifications}
-            >
-              <span>🔔 Enable Instant Food Updates</span>
-            </Button>
-            <button
-              type="button"
-              onClick={() => {
-                setIsVipNotifModalOpen(false);
-                if (typeof window !== 'undefined') {
-                  sessionStorage.setItem('cafeos_vip_notif_dismissed', 'true');
-                }
-              }}
-              className="w-full py-2 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors cursor-pointer text-center"
-            >
-              Maybe Later
-            </button>
-          </div>
+          {notificationPerm === 'denied' ? (
+            <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-left space-y-2">
+              <p className="text-xs font-bold text-rose-300 flex items-center gap-1.5">
+                <span>🔒 Notifications are blocked in your browser</span>
+              </p>
+              <p className="text-[11px] text-slate-300 leading-relaxed">
+                To receive instant lock-screen alerts, tap the <strong>lock / site settings icon (🔒)</strong> in your browser address bar and change Notifications to <strong>Allow</strong>.
+              </p>
+              <Button
+                variant="secondary"
+                className="w-full text-xs"
+                onClick={() => setIsVipNotifModalOpen(false)}
+              >
+                Got It
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Button
+                variant="primary"
+                className="w-full py-3.5 text-sm font-extrabold bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-600 text-slate-950 shadow-xl shadow-amber-500/30 flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] transition-all"
+                onClick={handleRequestNotifications}
+              >
+                <Bell className="w-4 h-4 fill-current" />
+                <span>Allow System Notifications</span>
+              </Button>
+              <button
+                type="button"
+                onClick={() => setIsVipNotifModalOpen(false)}
+                className="w-full py-2 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors cursor-pointer text-center"
+              >
+                Maybe Later, Browse Menu
+              </button>
+            </div>
+          )}
         </div>
       </Modal>
 
