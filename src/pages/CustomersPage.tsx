@@ -14,7 +14,8 @@ import {
 } from 'lucide-react';
 import { useBusiness } from '../context/BusinessContext';
 import { Customer, CustomerSegment } from '../types';
-import { formatCurrency, formatDate } from '../lib/utils';
+import { formatCurrency, formatDate, isValidUUID } from '../lib/utils';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -62,9 +63,15 @@ export const CustomersPage: React.FC = () => {
     setIsNoteModalOpen(true);
   };
 
-  const handleSaveNote = () => {
+  const handleSaveNote = async () => {
     if (selectedCustomer) {
       selectedCustomer.notes = noteText;
+      if (isSupabaseConfigured && isValidUUID(selectedCustomer.id)) {
+        await supabase
+          .from('customers')
+          .update({ notes: noteText, updated_at: new Date().toISOString() })
+          .eq('id', selectedCustomer.id);
+      }
       success('Notes Saved', `Updated CRM profile for ${selectedCustomer.name || selectedCustomer.phone}`);
       setIsNoteModalOpen(false);
     }

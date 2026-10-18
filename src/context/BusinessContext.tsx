@@ -30,6 +30,7 @@ import {
 import { generateUUID, isValidUUID } from '../lib/utils';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { useAuth } from './AuthContext';
+import { showLockScreenNotification } from '../lib/pushNotifications';
 
 interface BusinessContextType {
   // Tenant states
@@ -683,6 +684,47 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           }
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'customers' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newCust = payload.new as Customer;
+            if (newCust.business_id === activeBusiness.id) {
+              setCustomers((prev) => {
+                if (prev.some((c) => c.id === newCust.id || (c.business_id === newCust.business_id && c.phone === newCust.phone))) {
+                  return prev.map((c) => (c.id === newCust.id || c.phone === newCust.phone ? { ...c, ...newCust } : c));
+                }
+                return [newCust, ...prev];
+              });
+            }
+          } else if (payload.eventType === 'UPDATE') {
+            const updated = payload.new as Customer;
+            if (updated.business_id === activeBusiness.id) {
+              setCustomers((prev) =>
+                prev.map((c) => (c.id === updated.id || (c.business_id === updated.business_id && c.phone === updated.phone) ? { ...c, ...updated } : c))
+              );
+            }
+          } else if (payload.eventType === 'DELETE') {
+            const oldId = (payload.old as { id?: string })?.id;
+            if (oldId) {
+              setCustomers((prev) => prev.filter((c) => c.id !== oldId));
+            }
+          }
+        }
+      )
+      .on('broadcast', { event: 'customer_updated' }, (payload: any) => {
+        const cust = payload?.payload?.customer as Customer;
+        if (cust && cust.business_id === activeBusiness.id) {
+          setCustomers((prev) => {
+            const exists = prev.some((c) => c.id === cust.id || c.phone === cust.phone);
+            if (exists) {
+              return prev.map((c) => (c.id === cust.id || c.phone === cust.phone ? { ...c, ...cust } : c));
+            }
+            return [cust, ...prev];
+          });
+        }
+      })
       .subscribe();
 
     return () => {
@@ -784,18 +826,15 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }).then();
     }
 
-    // Trigger immediate native notification if browser has permission
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-      try {
-        new Notification(`${activeBusiness.name}: ${campaignData.title}`, {
-          body: campaignData.message,
-          icon: activeBusiness.logo_url || '/favicon.svg',
-          badge: '/favicon.svg',
-        });
-      } catch (err) {
-        console.warn('Native notification trigger notice:', err);
-      }
-    }
+    // Trigger immediate native lock-screen notification if browser has permission
+    showLockScreenNotification({
+      title: `${activeBusiness.name}: ${campaignData.title}`,
+      body: campaignData.message,
+      icon: activeBusiness.logo_url || '/favicon.svg',
+      chimeType: 'ping',
+      tag: 'smart_broadcast',
+      url: campaignData.linkUrl || (typeof window !== 'undefined' ? window.location.href : '/'),
+    });
   };
 
   const onboardNewBusiness = async (
@@ -989,48 +1028,107 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       updateTableStatus(orderData.table_id, 'OCCUPIED');
     }
 
-    // Update customer spending or add customer if new
-    if (orderData.customer_phone) {
+    // Update customer spending, loyalty points, and CRM profile
+    let targetCustomerId: string | null = null;
+    let preparedCustomer: Customer | null = null;
+
+    if (orderData.customer_phone && orderData.customer_phone.trim()) {
+      const cleanPhone = orderData.customer_phone.trim();
+      const cleanName = (orderData.customer_name && orderData.customer_name.trim()) || 'Guest Diner';
+
+      const existingCust = customers.find(
+        (c) => c.business_id === targetBizId && c.phone === cleanPhone
+      );
+
+      const prevSpend = Number(existingCust?.total_spending || 0);
+      const prevVisits = Number(existingCust?.visit_count || 0);
+      const prevPoints = Number(existingCust?.loyalty_points || 0);
+
+      const newSpend = prevSpend + Number(newOrder.total_amount || 0);
+      const newVisits = prevVisits + 1;
+      const newPoints = prevPoints + Math.floor(Number(newOrder.total_amount || 0) * 0.05);
+
+      let newSegment: CustomerSegment = 'NEW';
+      if (newSpend >= 5000 || newVisits >= 10) {
+        newSegment = 'VIP';
+      } else if (newVisits >= 3) {
+        newSegment = 'REGULAR';
+      }
+
+      preparedCustomer = {
+        id: existingCust?.id || generateUUID(),
+        business_id: targetBizId,
+        name: cleanName,
+        phone: cleanPhone,
+        email: existingCust?.email || null,
+        total_spending: newSpend,
+        visit_count: newVisits,
+        last_visit: new Date().toISOString(),
+        loyalty_points: newPoints,
+        segment: newSegment,
+        notes: existingCust?.notes || null,
+        created_at: existingCust?.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      targetCustomerId = preparedCustomer.id;
+      newOrder.customer_id = targetCustomerId;
+
+      // Update local state immediately for instant CRM responsiveness
       setCustomers((prev) => {
-        const existing = prev.find(
-          (c) => c.business_id === targetBizId && c.phone === orderData.customer_phone
+        const idx = prev.findIndex(
+          (c) => c.id === preparedCustomer!.id || (c.business_id === targetBizId && c.phone === cleanPhone)
         );
-        if (existing) {
-          return prev.map((c) =>
-            c.id === existing.id
-              ? {
-                  ...c,
-                  total_spending: c.total_spending + newOrder.total_amount,
-                  visit_count: c.visit_count + 1,
-                  last_visit: new Date().toISOString(),
-                  loyalty_points: c.loyalty_points + Math.floor(newOrder.total_amount * 0.05),
-                }
-              : c
-          );
-        } else {
-          const newCust: Customer = {
-            id: generateUUID(),
-            business_id: targetBizId,
-            name: orderData.customer_name || 'Guest Diner',
-            phone: orderData.customer_phone || '',
-            total_spending: newOrder.total_amount,
-            visit_count: 1,
-            last_visit: new Date().toISOString(),
-            loyalty_points: Math.floor(newOrder.total_amount * 0.05),
-            segment: 'NEW',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          };
-          return [newCust, ...prev];
+        if (idx >= 0) {
+          const updated = [...prev];
+          updated[idx] = preparedCustomer!;
+          return updated;
         }
+        return [preparedCustomer!, ...prev];
       });
     }
 
     playKitchenAlert();
 
-    // Sync order to Supabase in background
+    // Sync customer & order to Supabase in background
     if (isSupabaseConfigured) {
       try {
+        // 1. Upsert customer record to Supabase CRM
+        if (preparedCustomer) {
+          try {
+            const { data: savedCust, error: custErr } = await supabase
+              .from('customers')
+              .upsert(
+                {
+                  id: preparedCustomer.id,
+                  business_id: preparedCustomer.business_id,
+                  name: preparedCustomer.name,
+                  phone: preparedCustomer.phone,
+                  total_spending: preparedCustomer.total_spending,
+                  visit_count: preparedCustomer.visit_count,
+                  last_visit: preparedCustomer.last_visit,
+                  loyalty_points: preparedCustomer.loyalty_points,
+                  segment: preparedCustomer.segment,
+                  notes: preparedCustomer.notes,
+                  updated_at: preparedCustomer.updated_at,
+                },
+                { onConflict: 'business_id,phone' }
+              )
+              .select()
+              .maybeSingle();
+
+            if (custErr) {
+              console.error('Supabase customer CRM upsert error:', custErr);
+            } else if (savedCust) {
+              targetCustomerId = savedCust.id;
+              newOrder.customer_id = targetCustomerId;
+            }
+          } catch (cEx) {
+            console.warn('Customer upsert notice:', cEx);
+          }
+        }
+
+        // 2. Validate linked table ID
         let dbTableId: string | null = null;
         if (orderData.table_id && isValidUUID(orderData.table_id)) {
           const tableExists = tables.some((t) => t.id === orderData.table_id);
@@ -1039,6 +1137,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           }
         }
 
+        // 3. Insert order into Supabase orders table
         const { error: ordErr } = await supabase
           .from('orders')
           .insert({
@@ -1046,6 +1145,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             business_id: newOrder.business_id,
             branch_id: newOrder.branch_id,
             table_id: dbTableId,
+            customer_id: targetCustomerId && isValidUUID(targetCustomerId) ? targetCustomerId : null,
             order_number: newOrder.order_number,
             status: newOrder.status,
             customer_name: newOrder.customer_name,
@@ -1083,7 +1183,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           if (itemInsertErr) console.error('Order items insert error:', itemInsertErr);
         }
 
-        // Dual-Layer Instant Realtime Broadcast to notify all cafe owner/staff/KDS screens
+        // 4. Dual-Layer Instant Realtime Broadcast to notify all cafe owner/staff/KDS screens
         try {
           const realtimeChannel = supabase.channel(`cafeos_realtime_${targetBizId}`);
           await realtimeChannel.send({
@@ -1091,6 +1191,14 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             event: 'new_order_placed',
             payload: { order: newOrder },
           });
+
+          if (preparedCustomer) {
+            await realtimeChannel.send({
+              type: 'broadcast',
+              event: 'customer_updated',
+              payload: { customer: preparedCustomer },
+            });
+          }
         } catch (bcErr) {
           console.warn('Realtime order broadcast notice:', bcErr);
         }
@@ -1124,8 +1232,16 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (isSupabaseConfigured && isValidUUID(orderId)) {
       supabase.from('orders').update({ status, updated_at: new Date().toISOString() }).eq('id', orderId).then();
 
+      // Broadcast to both customer order channel and business realtime channel
       try {
         supabase.channel(`cust_order_${orderId}`).send({
+          type: 'broadcast',
+          event: 'order_status_updated',
+          payload: { orderId, status },
+        });
+
+        const targetBizId = targetOrder?.business_id || activeBusiness.id;
+        supabase.channel(`cafeos_realtime_${targetBizId}`).send({
           type: 'broadcast',
           event: 'order_status_updated',
           payload: { orderId, status },

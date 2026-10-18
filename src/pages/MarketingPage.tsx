@@ -26,6 +26,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { useToast } from '../components/ui/Toast';
+import { showLockScreenNotification, requestNotificationPermission } from '../lib/pushNotifications';
 
 export const MarketingPage: React.FC = () => {
   const { activeBusiness, campaigns, customers, sendSmartBroadcast } = useBusiness();
@@ -97,14 +98,21 @@ export const MarketingPage: React.FC = () => {
       return;
     }
 
-    const perm = await Notification.requestPermission();
+    const perm = await requestNotificationPermission({
+      businessName: activeBusiness.name,
+      logoUrl: activeBusiness.logo_url,
+    });
+
     if (perm === 'granted') {
-      new Notification(`${activeBusiness.name}: ${pushTitle}`, {
+      await showLockScreenNotification({
+        title: `${activeBusiness.name}: ${pushTitle}`,
         body: pushMessage,
         icon: activeBusiness.logo_url || '/favicon.svg',
-        badge: '/favicon.svg',
+        chimeType: 'ping',
+        tag: 'marketing_test',
+        url: window.location.href,
       });
-      success('Test Push Delivered! 🔔', 'Check your device notification bar right now to see how customers view it.');
+      success('Test Push Delivered! 🔔', 'Check your device lock screen & notification bar right now to see how customers view it.');
     } else {
       error('Permission Denied', 'Please allow notifications in your browser address bar to test on this device.');
     }
