@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ShoppingBag,
   Search,
@@ -418,7 +418,57 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
     orders.find((o) => o.id === (placedOrderId || placedOrder?.id)) ||
     placedOrder;
 
-  // Real-time listener for placed order status updates
+  const lastNotifiedStatusRef = useRef<OrderStatus | null>(null);
+
+  // Dedicated reactive engine: fires Swiggy/Zomato lock screen push whenever status transitions
+  useEffect(() => {
+    if (!currentPlacedOrder) return;
+
+    // Initialize ref on first observation of an active order so we don't fire stale alerts on page reload
+    if (lastNotifiedStatusRef.current === null) {
+      lastNotifiedStatusRef.current = currentPlacedOrder.status;
+      return;
+    }
+
+    const prevStatus = lastNotifiedStatusRef.current;
+    const newStatus = currentPlacedOrder.status;
+
+    if (prevStatus !== newStatus) {
+      lastNotifiedStatusRef.current = newStatus;
+
+      const cfg = getOrderStatusNotificationConfig(
+        newStatus,
+        currentPlacedOrder.order_number,
+        effectiveTable?.table_number,
+        effectiveBusiness.name
+      );
+
+      showLockScreenNotification({
+        title: cfg.title,
+        body: cfg.body,
+        icon: effectiveBusiness.logo_url || '/favicon.svg',
+        chimeType: cfg.chimeType,
+        orderId: currentPlacedOrder.id,
+        tag: `order_status_${currentPlacedOrder.id}`,
+        url: window.location.href,
+      });
+
+      if (newStatus === 'COMPLETED' && !hasAutoPromptedReview) {
+        setIsReviewModalOpen(true);
+        setHasAutoPromptedReview(true);
+      }
+    }
+  }, [
+    currentPlacedOrder?.status,
+    currentPlacedOrder?.id,
+    currentPlacedOrder?.order_number,
+    effectiveTable?.table_number,
+    effectiveBusiness.name,
+    effectiveBusiness.logo_url,
+    hasAutoPromptedReview,
+  ]);
+
+  // Real-time listener for placed order status updates via Supabase
   useEffect(() => {
     if (!isSupabaseConfigured || !placedOrderId) return;
 
@@ -438,62 +488,14 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
         { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${placedOrderId}` },
         (payload) => {
           const updated = payload.new as Order;
-          setPlacedOrder((prev) => {
-            if (prev && prev.status !== updated.status) {
-              const cfg = getOrderStatusNotificationConfig(
-                updated.status,
-                updated.order_number || prev.order_number,
-                effectiveTable?.table_number,
-                effectiveBusiness.name
-              );
-              showLockScreenNotification({
-                title: cfg.title,
-                body: cfg.body,
-                icon: effectiveBusiness.logo_url || '/favicon.svg',
-                chimeType: cfg.chimeType,
-                orderId: placedOrderId,
-                tag: `order_status_${placedOrderId}`,
-                url: window.location.href,
-              });
-            }
-            return prev ? { ...prev, ...updated } : updated;
-          });
-
-          if (updated.status === 'COMPLETED' && !hasAutoPromptedReview) {
-            setIsReviewModalOpen(true);
-            setHasAutoPromptedReview(true);
-          }
+          setPlacedOrder((prev) => (prev ? { ...prev, ...updated } : updated));
         }
       )
       .on('broadcast', { event: 'order_status_updated' }, (payload: any) => {
         const data = payload?.payload;
         if (data && data.orderId === placedOrderId) {
           const newStatus = data.status as OrderStatus;
-          setPlacedOrder((prev) => {
-            if (prev && prev.status !== newStatus) {
-              const cfg = getOrderStatusNotificationConfig(
-                newStatus,
-                prev.order_number,
-                effectiveTable?.table_number,
-                effectiveBusiness.name
-              );
-              showLockScreenNotification({
-                title: cfg.title,
-                body: cfg.body,
-                icon: effectiveBusiness.logo_url || '/favicon.svg',
-                chimeType: cfg.chimeType,
-                orderId: placedOrderId,
-                tag: `order_status_${placedOrderId}`,
-                url: window.location.href,
-              });
-            }
-            return prev ? { ...prev, status: newStatus } : null;
-          });
-
-          if (newStatus === 'COMPLETED' && !hasAutoPromptedReview) {
-            setIsReviewModalOpen(true);
-            setHasAutoPromptedReview(true);
-          }
+          setPlacedOrder((prev) => (prev ? { ...prev, status: newStatus } : null));
         }
       })
       .subscribe();
@@ -501,7 +503,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [placedOrderId, hasAutoPromptedReview, effectiveBusiness.name, effectiveBusiness.logo_url, effectiveTable?.table_number]);
+  }, [placedOrderId]);
 
   // Real-time synchronization for customer QR menu items and categories
   useEffect(() => {
@@ -720,6 +722,17 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
     e.preventDefault();
     if (cart.length === 0) return;
 
+    // Prompt user for notifications on this direct user gesture if permission not yet decided
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      try {
+        const perm = await requestNotificationPermission({
+          businessName: effectiveBusiness.name,
+          logoUrl: effectiveBusiness.logo_url,
+        });
+        setNotificationPerm(perm);
+      } catch {}
+    }
+
     const orderItemsPayload: OrderItem[] = cart.map((ci) => ({
       id: generateUUID(),
       order_id: '',
@@ -755,6 +768,9 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
       items: orderItemsPayload,
       notes: `Ordered via Customer QR (Table: ${effectiveTable?.table_number || '01'})`,
     });
+
+    // Mark current status as PLACED so subsequent transitions (PREPARING, READY, etc.) fire smoothly
+    lastNotifiedStatusRef.current = 'PLACED';
 
     // Trigger Swiggy/Zomato Instant Lock Screen Push Notification with chime & haptics
     const placedNotifCfg = getOrderStatusNotificationConfig(

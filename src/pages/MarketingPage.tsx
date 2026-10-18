@@ -47,6 +47,14 @@ export const MarketingPage: React.FC = () => {
   );
   const [pushCode, setPushCode] = useState('FLASH20');
 
+  // Local notification permission status
+  const [devicePermission, setDevicePermission] = useState<NotificationPermission>(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      return Notification.permission;
+    }
+    return 'default';
+  });
+
   const BROADCAST_PRESETS = [
     {
       title: '⚡ Flash 20% OFF Happy Hour!',
@@ -74,10 +82,20 @@ export const MarketingPage: React.FC = () => {
     (c) => targetSegment === 'NEW' || c.segment === targetSegment
   ).length;
 
-  const handleSendLiveBroadcast = () => {
+  const handleSendLiveBroadcast = async () => {
     if (!pushTitle.trim() || !pushMessage.trim()) {
       error('Missing Content', 'Please enter a notification headline and body.');
       return;
+    }
+
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      try {
+        const perm = await requestNotificationPermission({
+          businessName: activeBusiness.name,
+          logoUrl: activeBusiness.logo_url,
+        });
+        setDevicePermission(perm);
+      } catch {}
     }
 
     sendSmartBroadcast({
@@ -86,35 +104,66 @@ export const MarketingPage: React.FC = () => {
       discountCode: pushCode.trim(),
     });
 
+    // Also trigger instant lock-screen push & floating banner on sender's device so they preview the result immediately
+    await showLockScreenNotification({
+      title: `${activeBusiness.name}: ${pushTitle.trim()}`,
+      body: pushMessage.trim(),
+      icon: activeBusiness.logo_url || '/favicon.svg',
+      chimeType: 'ping',
+      tag: 'marketing_broadcast_preview',
+      url: window.location.href,
+    });
+
     success(
       'Broadcast Dispatched Live! 🚀',
-      `Push notification sent directly to customer notification bars (Swiggy/Zomato style) + recorded in campaigns.`
+      `Push notification sent to all active customer devices (Swiggy/Zomato style) + dispatched on this device.`
     );
   };
 
   const handleTestMyDevice = async () => {
-    if (typeof window === 'undefined' || !('Notification' in window)) {
-      info('Not Supported', 'Browser notifications not supported on this browser.');
-      return;
-    }
-
-    const perm = await requestNotificationPermission({
-      businessName: activeBusiness.name,
-      logoUrl: activeBusiness.logo_url,
-    });
-
-    if (perm === 'granted') {
-      await showLockScreenNotification({
+    const isSupported = typeof window !== 'undefined' && 'Notification' in window;
+    if (!isSupported) {
+      showLockScreenNotification({
         title: `${activeBusiness.name}: ${pushTitle}`,
         body: pushMessage,
         icon: activeBusiness.logo_url || '/favicon.svg',
         chimeType: 'ping',
         tag: 'marketing_test',
-        url: window.location.href,
+        url: typeof window !== 'undefined' ? window.location.href : '/',
       });
-      success('Test Push Delivered! 🔔', 'Check your device lock screen & notification bar right now to see how customers view it.');
+      info('In-App Notification Preview', 'Notification banner & sound tested.');
+      return;
+    }
+
+    let perm = Notification.permission;
+    if (perm === 'default') {
+      perm = await requestNotificationPermission({
+        businessName: activeBusiness.name,
+        logoUrl: activeBusiness.logo_url,
+      });
+      setDevicePermission(perm);
+    }
+
+    // Always trigger lock screen notification + in-app banner + chime + haptic vibration
+    await showLockScreenNotification({
+      title: `${activeBusiness.name}: ${pushTitle}`,
+      body: pushMessage,
+      icon: activeBusiness.logo_url || '/favicon.svg',
+      chimeType: 'ping',
+      tag: 'marketing_test',
+      url: window.location.href,
+    });
+
+    if (perm === 'granted') {
+      success(
+        'Lock-Screen Push Delivered! 🔔',
+        'Check your device lock screen, notification bar & top screen banner.'
+      );
     } else {
-      error('Permission Denied', 'Please allow notifications in your browser address bar to test on this device.');
+      info(
+        'In-App Push Banner Displayed! 🔔',
+        'Native OS notifications are blocked in your browser. Unblock in address bar to also receive lock screen push when browser is closed.'
+      );
     }
   };
 
@@ -307,6 +356,27 @@ export const MarketingPage: React.FC = () => {
               >
                 Preview on This Device
               </Button>
+              <div className="pt-1 flex items-center justify-between text-[11px] px-1">
+                <span className="text-slate-400">Lock-Screen Alert:</span>
+                {devicePermission === 'granted' ? (
+                  <span className="text-emerald-400 font-bold flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    Active on Device
+                  </span>
+                ) : devicePermission === 'denied' ? (
+                  <span className="text-rose-400 font-semibold text-[10px]" title="Unblock in your browser address bar">
+                    Blocked in Browser
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleTestMyDevice}
+                    className="text-amber-400 hover:text-amber-300 font-bold underline cursor-pointer text-[10px]"
+                  >
+                    Click to Enable
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>

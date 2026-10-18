@@ -866,20 +866,27 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // Send Realtime Broadcast via Supabase
     if (isSupabaseConfigured) {
-      supabase.channel('public:cafeos_broadcasts').send({
-        type: 'broadcast',
-        event: 'marketing_push',
-        payload: {
-          business_id: activeBusiness.id,
-          business_name: activeBusiness.name,
-          logo_url: activeBusiness.logo_url,
-          title: campaignData.title,
-          message: campaignData.message,
-          discount_code: campaignData.discountCode,
-          link_url: campaignData.linkUrl,
-          sent_at: new Date().toISOString(),
-        },
-      }).then();
+      const bCastChannel = supabase.channel('public:cafeos_broadcasts');
+      bCastChannel.subscribe((chStatus) => {
+        if (chStatus === 'SUBSCRIBED') {
+          bCastChannel.send({
+            type: 'broadcast',
+            event: 'marketing_push',
+            payload: {
+              business_id: activeBusiness.id,
+              business_name: activeBusiness.name,
+              logo_url: activeBusiness.logo_url,
+              title: campaignData.title,
+              message: campaignData.message,
+              discount_code: campaignData.discountCode,
+              link_url: campaignData.linkUrl,
+              sent_at: new Date().toISOString(),
+            },
+          }).then(() => {
+            setTimeout(() => supabase.removeChannel(bCastChannel), 1500);
+          });
+        }
+      });
     }
 
     // Trigger immediate native lock-screen notification if browser has permission
@@ -1245,19 +1252,24 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // 4. Dual-Layer Instant Realtime Broadcast to notify all cafe owner/staff/KDS screens
         try {
           const realtimeChannel = supabase.channel(`cafeos_realtime_${targetBizId}`);
-          await realtimeChannel.send({
-            type: 'broadcast',
-            event: 'new_order_placed',
-            payload: { order: newOrder },
+          realtimeChannel.subscribe((chStatus) => {
+            if (chStatus === 'SUBSCRIBED') {
+              realtimeChannel.send({
+                type: 'broadcast',
+                event: 'new_order_placed',
+                payload: { order: newOrder },
+              }).then(() => {
+                if (preparedCustomer) {
+                  realtimeChannel.send({
+                    type: 'broadcast',
+                    event: 'customer_updated',
+                    payload: { customer: preparedCustomer },
+                  });
+                }
+                setTimeout(() => supabase.removeChannel(realtimeChannel), 2000);
+              });
+            }
           });
-
-          if (preparedCustomer) {
-            await realtimeChannel.send({
-              type: 'broadcast',
-              event: 'customer_updated',
-              payload: { customer: preparedCustomer },
-            });
-          }
         } catch (bcErr) {
           console.warn('Realtime order broadcast notice:', bcErr);
         }
@@ -1293,19 +1305,35 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       // Broadcast to both customer order channel and business realtime channel
       try {
-        supabase.channel(`cust_order_${orderId}`).send({
-          type: 'broadcast',
-          event: 'order_status_updated',
-          payload: { orderId, status },
+        const custCh = supabase.channel(`cust_order_${orderId}`);
+        custCh.subscribe((chStatus) => {
+          if (chStatus === 'SUBSCRIBED') {
+            custCh.send({
+              type: 'broadcast',
+              event: 'order_status_updated',
+              payload: { orderId, status },
+            }).then(() => {
+              setTimeout(() => supabase.removeChannel(custCh), 1500);
+            });
+          }
         });
 
         const targetBizId = targetOrder?.business_id || activeBusiness.id;
-        supabase.channel(`cafeos_realtime_${targetBizId}`).send({
-          type: 'broadcast',
-          event: 'order_status_updated',
-          payload: { orderId, status },
+        const bizCh = supabase.channel(`cafeos_realtime_${targetBizId}`);
+        bizCh.subscribe((chStatus) => {
+          if (chStatus === 'SUBSCRIBED') {
+            bizCh.send({
+              type: 'broadcast',
+              event: 'order_status_updated',
+              payload: { orderId, status },
+            }).then(() => {
+              setTimeout(() => supabase.removeChannel(bizCh), 1500);
+            });
+          }
         });
-      } catch {}
+      } catch (bcErr) {
+        console.warn('Realtime status broadcast notice:', bcErr);
+      }
     }
   };
 

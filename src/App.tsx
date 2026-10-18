@@ -5,6 +5,7 @@ import { ToastProvider } from './components/ui/Toast';
 import { DashboardLayout } from './components/layout/DashboardLayout';
 import { NavigationPage } from './components/layout/Sidebar';
 import { AuthModal } from './components/auth/AuthModal';
+import { SwiggyPushBanner } from './components/ui/SwiggyPushBanner';
 import { Button } from './components/ui/Button';
 import { Sparkles, Lock, Loader2, ShieldAlert } from 'lucide-react';
 
@@ -334,6 +335,7 @@ export default function App() {
     <ToastProvider>
       <AuthProvider>
         <BusinessProvider>
+          <SwiggyPushBanner />
           <MainApp />
         </BusinessProvider>
       </AuthProvider>

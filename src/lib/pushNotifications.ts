@@ -85,11 +85,24 @@ export const requestNotificationPermission = async (options?: {
     return 'denied';
   }
 
+  // 1. Resume audio context inside this user gesture so chimes play freely
   try {
-    // Register SW first so it is available immediately when permission is granted
-    await registerServiceWorker();
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (AudioContextClass) {
+      if (!audioCtx) audioCtx = new AudioContextClass();
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+      }
+    }
+  } catch {}
 
+  try {
+    // 2. CRITICAL: Request permission IMMEDIATELY without awaiting service worker first,
+    // to ensure the browser user-gesture activation is active!
     const permission = await Notification.requestPermission();
+
+    // 3. Register service worker in background once permission is granted
+    registerServiceWorker().catch(() => {});
 
     if (permission === 'granted') {
       triggerHaptic([200, 80, 200]);
@@ -137,19 +150,41 @@ export const showLockScreenNotification = async ({
   vibrate = [250, 100, 250, 100, 250],
   chimeType = 'order',
 }: LockScreenNotificationOptions): Promise<boolean> => {
-  if (typeof window === 'undefined' || !('Notification' in window)) {
-    return false;
-  }
-
-  if (Notification.permission !== 'granted') {
-    return false;
-  }
-
-  // Play audio chime & trigger mobile haptic vibration
+  // 1. Always play pleasant Swiggy audio chime & trigger mobile haptic vibration
   triggerHaptic(vibrate);
   playNotificationChime(chimeType);
 
-  const notificationOptions: NotificationOptions & Record<string, any> = {
+  // 2. ALWAYS dispatch in-app dynamic push event so an instant Swiggy/Zomato banner slides down immediately
+  if (typeof window !== 'undefined') {
+    try {
+      window.dispatchEvent(
+        new CustomEvent('cafeos:push_notification', {
+          detail: {
+            title,
+            body,
+            icon,
+            badge,
+            tag,
+            url,
+            orderId,
+            chimeType,
+            timestamp: Date.now(),
+          },
+        })
+      );
+    } catch {}
+  }
+
+  if (typeof window === 'undefined' || !('Notification' in window)) {
+    return true; // in-app displayed
+  }
+
+  if (Notification.permission !== 'granted') {
+    return true; // in-app displayed
+  }
+
+  // Persistent notification options (supported with actions by ServiceWorkerRegistration)
+  const persistentOptions: NotificationOptions & Record<string, any> = {
     body,
     icon,
     badge,
@@ -168,7 +203,22 @@ export const showLockScreenNotification = async ({
     ],
   };
 
-  // On Android and iOS PWA, ServiceWorkerRegistration.showNotification is REQUIRED
+  // Standard non-persistent notification options (WITHOUT actions to prevent browser TypeError in new Notification)
+  const standardOptions: NotificationOptions & Record<string, any> = {
+    body,
+    icon,
+    badge,
+    tag,
+    renotify: true,
+    requireInteraction: true,
+    data: {
+      url,
+      orderId,
+      timestamp: Date.now(),
+    },
+  };
+
+  // 1. On Android, iOS PWA, and Chrome: ServiceWorkerRegistration.showNotification is preferred for lock screen
   if ('serviceWorker' in navigator) {
     try {
       let reg: ServiceWorkerRegistration | null | undefined = await navigator.serviceWorker.getRegistration();
@@ -176,7 +226,14 @@ export const showLockScreenNotification = async ({
         reg = await registerServiceWorker();
       }
       if (reg) {
-        await reg.showNotification(title, notificationOptions);
+        if (reg.active) {
+          reg.active.postMessage({
+            type: 'SHOW_NOTIFICATION',
+            title,
+            options: persistentOptions,
+          });
+        }
+        await reg.showNotification(title, persistentOptions);
         return true;
       }
     } catch (swErr) {
@@ -184,15 +241,19 @@ export const showLockScreenNotification = async ({
     }
   }
 
-  // Fallback for desktop browsers without active SW
+  // 2. Fallback for desktop browsers without active SW (uses standardOptions without 'actions')
   try {
-    new Notification(title, notificationOptions);
+    const notif = new Notification(title, standardOptions);
+    notif.onclick = () => {
+      window.focus();
+      if (url) window.location.href = url;
+    };
     return true;
   } catch (nErr) {
     console.warn('Fallback Notification constructor note:', nErr);
   }
 
-  return false;
+  return true;
 };
 
 // Generate Swiggy / Zomato dynamic status notification content
@@ -203,42 +264,43 @@ export const getOrderStatusNotificationConfig = (
   businessName?: string
 ): { title: string; body: string; chimeType: 'order' | 'ready' | 'celebrate' | 'ping' } => {
   const bizPrefix = businessName ? `${businessName}: ` : '';
+  const num = orderNumber ? (orderNumber.startsWith('#') ? orderNumber : `#${orderNumber}`) : '#ORD';
   const tableText = tableName ? `Table ${tableName}` : 'your table';
 
   switch (status) {
     case 'PLACED':
       return {
-        title: `${bizPrefix}🍽️ Order #${orderNumber} Received!`,
+        title: `${bizPrefix}🍽️ Order ${num} Received!`,
         body: `Order dispatched to kitchen for ${tableText}. Tap to track live cooking time!`,
         chimeType: 'order',
       };
     case 'PREPARING':
       return {
-        title: `${bizPrefix}🔥 Sizzling in Kitchen — #${orderNumber}`,
+        title: `${bizPrefix}🔥 Sizzling in Kitchen — ${num}`,
         body: `The chef is cooking your dishes fresh for ${tableText}! Almost ready.`,
         chimeType: 'order',
       };
     case 'READY':
       return {
-        title: `${bizPrefix}🛎️ Fresh & Hot! Order #${orderNumber} Ready!`,
+        title: `${bizPrefix}🛎️ Fresh & Hot! Order ${num} Ready!`,
         body: `Your food is ready to serve at ${tableText}! Enjoy your meal! 🎉`,
         chimeType: 'ready',
       };
     case 'COMPLETED':
       return {
-        title: `${bizPrefix}⭐ Hope You Loved It! Order #${orderNumber}`,
+        title: `${bizPrefix}⭐ Hope You Loved It! Order ${num}`,
         body: `Thank you for dining with us! Tap here to leave a quick 5-star review.`,
         chimeType: 'celebrate',
       };
     case 'CANCELLED':
       return {
-        title: `${bizPrefix}⚠️ Order #${orderNumber} Update`,
+        title: `${bizPrefix}⚠️ Order ${num} Update`,
         body: `Your order was marked cancelled. Please check with your server if unexpected.`,
         chimeType: 'ping',
       };
     default:
       return {
-        title: `${bizPrefix}🍽️ Order #${orderNumber} Update`,
+        title: `${bizPrefix}🍽️ Order ${num} Update`,
         body: `Status: ${status} for ${tableText}.`,
         chimeType: 'order',
       };
