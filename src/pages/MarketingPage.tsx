@@ -134,7 +134,7 @@ export const MarketingPage: React.FC = () => {
       message_template: template.trim(),
       status: 'SENT',
       sent_at: new Date().toISOString(),
-      audience_count: audienceSize || 24,
+      audience_count: audienceSize,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -214,7 +214,7 @@ export const MarketingPage: React.FC = () => {
               <span className="text-[10px] uppercase font-bold text-slate-400 block">Subscribed Diners</span>
               <strong className="text-sm font-bold text-emerald-400 flex items-center gap-1 justify-end">
                 <Radio className="w-3 h-3 animate-pulse text-emerald-400" />
-                {customers.length || 32} Devices Online
+                {customers.length} Devices Online
               </strong>
             </div>
           </div>
@@ -343,55 +343,65 @@ export const MarketingPage: React.FC = () => {
 
       {/* Campaigns List */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {campaigns.map((camp) => (
-          <Card key={camp.id} className="flex flex-col justify-between hover:border-slate-700 transition-all">
-            <div>
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div
-                    className={`p-2.5 rounded-xl border ${
-                      camp.channel === 'WEB_PUSH'
-                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-                        : camp.channel === 'WHATSAPP'
-                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                        : camp.channel === 'SMS'
-                        ? 'bg-sky-500/10 border-sky-500/30 text-sky-400'
-                        : 'bg-purple-500/10 border-purple-500/30 text-purple-400'
-                    }`}
-                  >
-                    {camp.channel === 'WEB_PUSH' && <Zap className="w-5 h-5 text-amber-400 fill-current" />}
-                    {camp.channel === 'WHATSAPP' && <MessageSquare className="w-5 h-5" />}
-                    {camp.channel === 'SMS' && <Smartphone className="w-5 h-5" />}
-                    {camp.channel === 'EMAIL' && <Mail className="w-5 h-5" />}
+        {campaigns.length === 0 ? (
+          <div className="col-span-full py-12 text-center text-slate-500 rounded-2xl border border-dashed border-slate-800">
+            <Megaphone className="w-8 h-8 mx-auto text-slate-600 mb-2" />
+            <p className="text-sm font-medium text-slate-300">No campaigns launched yet</p>
+            <p className="text-xs text-slate-500 mt-1">
+              Use "Send Live Push Alert" above or click "Create Broadcast" to reach registered diners.
+            </p>
+          </div>
+        ) : (
+          campaigns.map((camp) => (
+            <Card key={camp.id} className="flex flex-col justify-between hover:border-slate-700 transition-all">
+              <div>
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div
+                      className={`p-2.5 rounded-xl border ${
+                        camp.channel === 'WEB_PUSH'
+                          ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                          : camp.channel === 'WHATSAPP'
+                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                          : camp.channel === 'SMS'
+                          ? 'bg-sky-500/10 border-sky-500/30 text-sky-400'
+                          : 'bg-purple-500/10 border-purple-500/30 text-purple-400'
+                      }`}
+                    >
+                      {camp.channel === 'WEB_PUSH' && <Zap className="w-5 h-5 text-amber-400 fill-current" />}
+                      {camp.channel === 'WHATSAPP' && <MessageSquare className="w-5 h-5" />}
+                      {camp.channel === 'SMS' && <Smartphone className="w-5 h-5" />}
+                      {camp.channel === 'EMAIL' && <Mail className="w-5 h-5" />}
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-100">{camp.name}</h4>
+                      <span className="text-[11px] text-slate-400">
+                        Channel: <strong className="text-slate-200">{camp.channel}</strong>
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-100">{camp.name}</h4>
-                    <span className="text-[11px] text-slate-400">
-                      Channel: <strong className="text-slate-200">{camp.channel}</strong>
-                    </span>
-                  </div>
+
+                  <Badge variant={camp.status === 'SENT' ? 'success' : 'warning'}>
+                    {camp.status}
+                  </Badge>
                 </div>
 
-                <Badge variant={camp.status === 'SENT' ? 'success' : 'warning'}>
-                  {camp.status}
-                </Badge>
+                {/* Message preview snippet */}
+                <div className="mt-4 p-3 rounded-2xl bg-slate-950/70 border border-slate-800 text-xs text-slate-300 font-sans leading-relaxed">
+                  "{camp.message_template}"
+                </div>
               </div>
 
-              {/* Message preview snippet */}
-              <div className="mt-4 p-3 rounded-2xl bg-slate-950/70 border border-slate-800 text-xs text-slate-300 font-sans leading-relaxed">
-                "{camp.message_template}"
+              <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+                <span className="flex items-center gap-1">
+                  <Users className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Audience: <strong>{camp.audience_count} guests</strong></span>
+                </span>
+                <span>Sent: {formatDate(camp.sent_at)}</span>
               </div>
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-              <span className="flex items-center gap-1">
-                <Users className="w-3.5 h-3.5 text-slate-400" />
-                <span>Audience: <strong>{camp.audience_count} guests</strong></span>
-              </span>
-              <span>Sent: {formatDate(camp.sent_at)}</span>
-            </div>
-          </Card>
-        ))}
+            </Card>
+          ))
+        )}
       </div>
 
       {/* Broadcast Creation Modal */}

@@ -79,8 +79,17 @@ export const CouponsPage: React.FC = () => {
 
       {/* Coupons Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {coupons.map((coupon) => {
-          const usagePercent = Math.round((coupon.usage_count / coupon.usage_limit) * 100);
+        {coupons.length === 0 ? (
+          <div className="col-span-full py-16 text-center text-slate-500 rounded-2xl border border-dashed border-slate-800">
+            <Tag className="w-10 h-10 mx-auto text-slate-600 mb-2" />
+            <p className="text-sm font-medium text-slate-300">No promo coupons created yet</p>
+            <p className="text-xs text-slate-500 mt-1">
+              Click "Create Coupon" above to offer welcome discounts, happy hour codes, or seasonal vouchers.
+            </p>
+          </div>
+        ) : (
+          coupons.map((coupon) => {
+            const usagePercent = Math.round((coupon.usage_count / coupon.usage_limit) * 100);
           return (
             <Card
               key={coupon.id}

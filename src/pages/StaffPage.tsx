@@ -13,7 +13,6 @@ import {
 import { useBusiness } from '../context/BusinessContext';
 import { useAuth } from '../context/AuthContext';
 import { Staff, StaffRole } from '../types';
-import { INITIAL_STAFF } from '../lib/mockData';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -28,7 +27,7 @@ export const StaffPage: React.FC = () => {
   const { role: currentRole, switchRolePreview } = useAuth();
   const { success, error } = useToast();
 
-  const [staffList, setStaffList] = useState<Staff[]>(INITIAL_STAFF);
+  const [staffList, setStaffList] = useState<Staff[]>([]);
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
 
   React.useEffect(() => {
@@ -39,7 +38,7 @@ export const StaffPage: React.FC = () => {
       .select('*')
       .eq('business_id', activeBusiness.id)
       .then(({ data }) => {
-        if (isMounted && data && data.length > 0) {
+        if (isMounted && data) {
           setStaffList(data);
         }
       });
@@ -124,6 +123,9 @@ export const StaffPage: React.FC = () => {
     };
 
     setStaffList((prev) => [...prev, newStaff]);
+    if (isSupabaseConfigured) {
+      supabase.from('staff').insert([newStaff]).catch(console.error);
+    }
     success('Staff Member Added', `${fullName} invited as ${staffRole} with PIN ${pinCode}.`);
     setFullName('');
     setEmail('');
@@ -174,42 +176,52 @@ export const StaffPage: React.FC = () => {
 
       {/* Staff Members List */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {staffList.map((member) => (
-          <Card key={member.id} className="flex flex-col justify-between hover:border-slate-700 transition-all">
-            <div>
-              <div className="flex items-start justify-between">
-                <div className="w-10 h-10 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-sm text-slate-200">
-                  {member.full_name[0]}
+        {staffList.length === 0 ? (
+          <div className="col-span-full py-14 text-center text-slate-500 rounded-2xl border border-dashed border-slate-800">
+            <UserCheck className="w-8 h-8 mx-auto text-slate-600 mb-2" />
+            <p className="text-sm font-medium text-slate-300">No staff members assigned yet</p>
+            <p className="text-xs text-slate-500 mt-1">
+              Click "Add Staff Member" above to create roles and 4-digit PIN access for managers, cashiers, chefs, or waiters.
+            </p>
+          </div>
+        ) : (
+          staffList.map((member) => (
+            <Card key={member.id} className="flex flex-col justify-between hover:border-slate-700 transition-all">
+              <div>
+                <div className="flex items-start justify-between">
+                  <div className="w-10 h-10 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-sm text-slate-200">
+                    {member.full_name[0]}
+                  </div>
+                  <Badge variant={getRoleBadgeVariant(member.role)} size="sm">
+                    {member.role}
+                  </Badge>
                 </div>
-                <Badge variant={getRoleBadgeVariant(member.role)} size="sm">
-                  {member.role}
-                </Badge>
+
+                <div className="mt-3">
+                  <h4 className="text-sm font-bold text-slate-100">{member.full_name}</h4>
+                  <p className="text-xs text-slate-400 truncate mt-0.5">{member.email}</p>
+                  {member.phone && (
+                    <p className="text-[11px] text-slate-500 font-mono mt-0.5">{member.phone}</p>
+                  )}
+                </div>
               </div>
 
-              <div className="mt-3">
-                <h4 className="text-sm font-bold text-slate-100">{member.full_name}</h4>
-                <p className="text-xs text-slate-400 truncate mt-0.5">{member.email}</p>
-                {member.phone && (
-                  <p className="text-[11px] text-slate-500 font-mono mt-0.5">{member.phone}</p>
-                )}
+              <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs">
+                <span className="text-slate-400 flex items-center gap-1 font-mono">
+                  <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                  PIN: <strong className="text-slate-200">{member.pin_code || '1234'}</strong>
+                </span>
+
+                <button
+                  onClick={() => switchRolePreview(member.role)}
+                  className="text-amber-400 hover:underline font-semibold cursor-pointer text-[11px]"
+                >
+                  Simulate Role
+                </button>
               </div>
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs">
-              <span className="text-slate-400 flex items-center gap-1 font-mono">
-                <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-                PIN: <strong className="text-slate-200">{member.pin_code || '1234'}</strong>
-              </span>
-
-              <button
-                onClick={() => switchRolePreview(member.role)}
-                className="text-amber-400 hover:underline font-semibold cursor-pointer text-[11px]"
-              >
-                Simulate Role
-              </button>
-            </div>
-          </Card>
-        ))}
+            </Card>
+          ))
+        )}
       </div>
 
       {/* Permissions Matrix Card */}

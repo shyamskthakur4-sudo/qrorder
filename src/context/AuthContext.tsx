@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { StaffRole, UserProfile, Staff } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { INITIAL_STAFF } from '../lib/mockData';
 
 export interface SignupResult {
   success: boolean;
@@ -326,21 +325,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
 
-      // Local / Offline / Demo authentication
-      const matchedStaff = INITIAL_STAFF.find((s) => s.email.toLowerCase() === cleanEmail);
-      if (matchedStaff) {
-        setStaff(matchedStaff);
-        setRole(matchedStaff.role);
-        setUser({
-          id: matchedStaff.user_id || 'usr-demo',
-          email: matchedStaff.email,
-          full_name: matchedStaff.full_name,
-          phone: matchedStaff.phone,
-          is_superadmin: false,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
-      } else if (cleanEmail === 'admin@cafeos.app') {
+      if (cleanEmail === 'admin@cafeos.app') {
         setRole('SUPER_ADMIN');
         setUser({
           id: 'super-admin-01',
@@ -662,20 +647,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const staffPinLogin = async (pin: string): Promise<boolean> => {
     setIsLoading(true);
     try {
-      const matched = INITIAL_STAFF.find((s) => s.pin_code === pin && s.is_active);
-      if (matched) {
-        setStaff(matched);
-        setRole(matched.role);
-        setUser({
-          id: matched.user_id || 'usr-pin',
-          email: matched.email,
-          full_name: matched.full_name,
-          phone: matched.phone,
-          is_superadmin: false,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
-        return true;
+      if (isSupabaseConfigured) {
+        const { data } = await supabase
+          .from('staff')
+          .select('*')
+          .eq('pin_code', pin)
+          .eq('is_active', true)
+          .limit(1)
+          .maybeSingle();
+
+        if (data) {
+          setStaff(data);
+          setRole(data.role);
+          setUser({
+            id: data.user_id || `staff-${data.id}`,
+            email: data.email,
+            full_name: data.full_name,
+            phone: data.phone,
+            is_superadmin: false,
+            created_at: data.created_at,
+            updated_at: data.updated_at,
+          });
+          return true;
+        }
       }
       return false;
     } finally {
@@ -729,20 +723,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }));
-    } else {
-      const match = INITIAL_STAFF.find((s) => s.role === newRole);
-      if (match) {
-        setStaff(match);
-        setUser((prev) => ({
-          id: match.user_id || 'usr-' + newRole.toLowerCase(),
-          email: prev?.email || match.email,
-          full_name: prev?.full_name || match.full_name,
-          phone: match.phone,
-          is_superadmin: prev?.is_superadmin || false,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }));
-      }
     }
   };
 

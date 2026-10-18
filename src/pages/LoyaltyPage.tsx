@@ -143,51 +143,63 @@ export const LoyaltyPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {customers
-                .slice()
-                .sort((a, b) => b.loyalty_points - a.loyalty_points)
-                .map((cust) => {
-                  const tier =
-                    cust.total_spending >= 30000
-                      ? 'PLATINUM'
-                      : cust.total_spending >= 15000
-                      ? 'GOLD'
-                      : cust.total_spending >= 5000
-                      ? 'SILVER'
-                      : 'BRONZE';
+              {customers.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center text-slate-500">
+                    <Gift className="w-8 h-8 mx-auto text-slate-600 mb-2" />
+                    <p className="text-sm font-medium text-slate-300">No loyalty point holders yet</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Loyalty points will automatically accumulate as customers place and pay for orders.
+                    </p>
+                  </td>
+                </tr>
+              ) : (
+                customers
+                  .slice()
+                  .sort((a, b) => b.loyalty_points - a.loyalty_points)
+                  .map((cust) => {
+                    const tier =
+                      cust.total_spending >= 30000
+                        ? 'PLATINUM'
+                        : cust.total_spending >= 15000
+                        ? 'GOLD'
+                        : cust.total_spending >= 5000
+                        ? 'SILVER'
+                        : 'BRONZE';
 
-                  return (
-                    <tr key={cust.id} className="hover:bg-slate-800/30">
-                      <td className="py-3 font-bold text-slate-100">{cust.name || 'Guest'}</td>
-                      <td className="py-3 text-slate-400 font-mono">{cust.phone}</td>
-                      <td className="py-3 font-semibold text-slate-200">
-                        {formatCurrency(cust.total_spending, 'INR', '₹')}
-                      </td>
-                      <td className="py-3 font-bold font-mono text-amber-400">
-                        {cust.loyalty_points} pts
-                      </td>
-                      <td className="py-3 text-emerald-400 font-semibold">
-                        ₹{(cust.loyalty_points * 0.5).toFixed(2)}
-                      </td>
-                      <td className="py-3">
-                        <Badge
-                          variant={
-                            tier === 'PLATINUM'
-                              ? 'success'
-                              : tier === 'GOLD'
-                              ? 'purple'
-                              : tier === 'SILVER'
-                              ? 'info'
-                              : 'amber'
-                          }
-                          size="sm"
-                        >
-                          {tier}
-                        </Badge>
-                      </td>
-                    </tr>
-                  );
-                })}
+                    return (
+                      <tr key={cust.id} className="hover:bg-slate-800/30">
+                        <td className="py-3 font-bold text-slate-100">{cust.name || 'Guest'}</td>
+                        <td className="py-3 text-slate-400 font-mono">{cust.phone}</td>
+                        <td className="py-3 font-semibold text-slate-200">
+                          {formatCurrency(cust.total_spending, 'INR', '₹')}
+                        </td>
+                        <td className="py-3 font-bold font-mono text-amber-400">
+                          {cust.loyalty_points} pts
+                        </td>
+                        <td className="py-3 text-emerald-400 font-semibold">
+                          ₹{(cust.loyalty_points * 0.5).toFixed(2)}
+                        </td>
+                        <td className="py-3">
+                          <Badge
+                            variant={
+                              tier === 'PLATINUM'
+                                ? 'success'
+                                : tier === 'GOLD'
+                                ? 'purple'
+                                : tier === 'SILVER'
+                                ? 'info'
+                                : 'amber'
+                            }
+                            size="sm"
+                          >
+                            {tier}
+                          </Badge>
+                        </td>
+                      </tr>
+                    );
+                  })
+              )}
             </tbody>
           </table>
         </CardContent>

@@ -14,19 +14,6 @@ import {
   Subscription,
   TableStatus,
 } from '../types';
-import {
-  INITIAL_BUSINESSES,
-  INITIAL_BRANCHES,
-  INITIAL_TABLES,
-  INITIAL_ORDERS,
-  INITIAL_CATEGORIES,
-  INITIAL_MENU_ITEMS,
-  INITIAL_CUSTOMERS,
-  INITIAL_COUPONS,
-  INITIAL_INVENTORY,
-  INITIAL_CAMPAIGNS,
-  INITIAL_SUBSCRIPTIONS,
-} from '../lib/mockData';
 import { generateUUID, isValidUUID } from '../lib/utils';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { useAuth } from './AuthContext';
@@ -105,21 +92,79 @@ const isDemoData = (raw: string | null) => {
     s.includes('roast & brew') ||
     s.includes('roastbrew') ||
     s.includes('bella italia') ||
-    s.includes('b2222222-2222-2222-2222-222222222222') ||
-    s.includes('indiranagar flagship') ||
-    s.includes('#rb-108') ||
-    s.includes('b1111111-1111-1111-1111-111111111111') ||
-    s.includes('ba111111-1111-1111-1111-111111111111') ||
-    s.includes('shyams-cafe') ||
-    s.includes("shyam's cafe") ||
-    s.includes('shyamskthakur@gmail.com') ||
-    s.includes('#ord-1001') ||
-    s.includes('rahul sharma') ||
+    s.includes('tapas trail') ||
+    s.includes('spice symphony') ||
+    s.includes('brew & bites') ||
     s.includes('cafeos demo') ||
     s.includes('demo-restaurant') ||
-    s.includes('demo@cafeos.app')
+    s.includes('demo-branch') ||
+    s.includes('demo@cafeos.app') ||
+    s.includes('demo owner') ||
+    s.includes('usr-demo') ||
+    s.includes('staff-demo') ||
+    s.includes('special masala chai') ||
+    s.includes('hot filter coffee') ||
+    s.includes('grilled paneer tikka') ||
+    s.includes('classic veg burger') ||
+    s.includes('indiranagar') ||
+    s.includes('koramangala') ||
+    s.includes('city center plaza') ||
+    s.includes('biz-01') ||
+    s.includes('biz-02') ||
+    s.includes('branch-01') ||
+    s.includes('branch-02') ||
+    s.includes('tbl-01') ||
+    s.includes('tbl-02') ||
+    s.includes('table-01') ||
+    s.includes('cat-01') ||
+    s.includes('cat-02') ||
+    s.includes('cat-03') ||
+    s.includes('item-01') ||
+    s.includes('item-02') ||
+    s.includes('item-03') ||
+    s.includes('item-04') ||
+    s.includes('cust-01') ||
+    s.includes('cust-02') ||
+    s.includes('ord-01') ||
+    s.includes('ord-02') ||
+    s.includes('coupon-01') ||
+    s.includes('inv-01') ||
+    s.includes('camp-01') ||
+    s.includes('sub-01') ||
+    s.includes('aarav sharma') ||
+    s.includes('priya patel') ||
+    s.includes('vikram malhotra') ||
+    s.includes('ananya iyer')
   );
 };
+
+// Auto-purge any stale mock demo keys from previous browser sessions
+if (typeof window !== 'undefined') {
+  try {
+    const keys = [
+      'cafeos_businesses',
+      'cafeos_active_biz_id',
+      'cafeos_branches',
+      'cafeos_active_branch_id',
+      'cafeos_tables',
+      'cafeos_orders',
+      'cafeos_categories',
+      'cafeos_menu_items',
+      'cafeos_customers',
+      'cafeos_coupons',
+      'cafeos_inventory',
+      'cafeos_campaigns',
+      'cafeos_staff',
+      'cafeos_role',
+    ];
+    keys.forEach((k) => {
+      const val = localStorage.getItem(k);
+      if (val && isDemoData(val)) {
+        localStorage.removeItem(k);
+      }
+    });
+  } catch {}
+}
 
 export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
@@ -133,7 +178,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       } catch {}
     }
-    return isSupabaseConfigured ? [] : INITIAL_BUSINESSES;
+    return [];
   });
 
   const [activeBusinessId, setActiveBusinessId] = useState<string>(() => {
@@ -141,7 +186,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (saved && !isDemoData(saved)) {
       return saved;
     }
-    return isSupabaseConfigured ? '' : INITIAL_BUSINESSES[0].id;
+    return '';
   });
 
   // Branches
@@ -153,7 +198,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       } catch {}
     }
-    return isSupabaseConfigured ? [] : INITIAL_BRANCHES;
+    return [];
   });
 
   const [activeBranchId, setActiveBranchId] = useState<string>(() => {
@@ -161,7 +206,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (saved && !isDemoData(saved)) {
       return saved;
     }
-    return isSupabaseConfigured ? '' : INITIAL_BRANCHES[0].id;
+    return '';
   });
 
   // Tables
@@ -170,7 +215,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (saved && !isDemoData(saved)) {
       try { return JSON.parse(saved); } catch {}
     }
-    return isSupabaseConfigured ? [] : INITIAL_TABLES;
+    return [];
   });
 
   // Orders
@@ -179,7 +224,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (saved && !isDemoData(saved)) {
       try { return JSON.parse(saved); } catch {}
     }
-    return isSupabaseConfigured ? [] : INITIAL_ORDERS;
+    return [];
   });
 
   // Menu
@@ -188,7 +233,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (saved && !isDemoData(saved)) {
       try { return JSON.parse(saved); } catch {}
     }
-    return isSupabaseConfigured ? [] : INITIAL_CATEGORIES;
+    return [];
   });
 
   const [menuItems, setMenuItems] = useState<MenuItem[]>(() => {
@@ -196,7 +241,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (saved && !isDemoData(saved)) {
       try { return JSON.parse(saved); } catch {}
     }
-    return isSupabaseConfigured ? [] : INITIAL_MENU_ITEMS;
+    return [];
   });
 
   // CRM & Loyalty
@@ -205,7 +250,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (saved && !isDemoData(saved)) {
       try { return JSON.parse(saved); } catch {}
     }
-    return isSupabaseConfigured ? [] : INITIAL_CUSTOMERS;
+    return [];
   });
 
   // Coupons
@@ -214,7 +259,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (saved && !isDemoData(saved)) {
       try { return JSON.parse(saved); } catch {}
     }
-    return isSupabaseConfigured ? [] : INITIAL_COUPONS;
+    return [];
   });
 
   // Inventory
@@ -223,7 +268,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (saved && !isDemoData(saved)) {
       try { return JSON.parse(saved); } catch {}
     }
-    return isSupabaseConfigured ? [] : INITIAL_INVENTORY;
+    return [];
   });
 
   // Marketing Campaigns
@@ -232,11 +277,11 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (saved && !isDemoData(saved)) {
       try { return JSON.parse(saved); } catch {}
     }
-    return isSupabaseConfigured ? [] : INITIAL_CAMPAIGNS;
+    return [];
   });
 
   // Subscriptions (Super Admin)
-  const [subscriptions] = useState<Subscription[]>(INITIAL_SUBSCRIPTIONS);
+  const [subscriptions] = useState<Subscription[]>([]);
 
   // Sync back to localStorage
   useEffect(() => {
@@ -290,57 +335,51 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Derived active items
   const activeBusiness: Business =
     businesses.find((b) => b.id === activeBusinessId) ||
-    businesses[0] ||
-    (isSupabaseConfigured
-      ? {
-          id: user?.id || 'pending-biz',
-          name: user?.full_name ? `${user.full_name}'s Cafe` : 'My Restaurant',
-          slug: 'my-restaurant',
-          email: user?.email || '',
-          phone: '',
-          logo_url: '',
-          currency: 'INR',
-          currency_symbol: '₹',
-          timezone: 'Asia/Kolkata',
-          status: 'ACTIVE',
-          subscription_plan: 'PRO',
-          google_review_url: '',
-          google_place_id: '',
-          enable_google_review_prompt: false,
-          min_rating_for_google: 4,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }
-      : INITIAL_BUSINESSES[0]);
+    businesses[0] || {
+      id: user?.id || 'pending-biz',
+      name: user?.full_name ? `${user.full_name}'s Cafe` : 'My Restaurant',
+      slug: 'my-restaurant',
+      email: user?.email || '',
+      phone: '',
+      logo_url: '',
+      currency: 'INR',
+      currency_symbol: '₹',
+      timezone: 'Asia/Kolkata',
+      status: 'ACTIVE',
+      subscription_plan: 'PRO',
+      google_review_url: '',
+      google_place_id: '',
+      enable_google_review_prompt: false,
+      min_rating_for_google: 4,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
 
   const currentBranches = branches.filter((br) => br.business_id === activeBusiness.id);
 
   const activeBranch: Branch =
     currentBranches.find((br) => br.id === activeBranchId) ||
     currentBranches[0] ||
-    branches[0] ||
-    (isSupabaseConfigured
-      ? {
-          id: 'main-branch',
-          business_id: activeBusiness.id,
-          name: 'Main Branch',
-          slug: 'main-branch',
-          address: '',
-          city: '',
-          state: '',
-          pincode: '',
-          phone: '',
-          email: user?.email || '',
-          gst_number: '',
-          tax_rate_percent: 5.0,
-          service_charge_percent: 0.0,
-          opening_time: '09:00',
-          closing_time: '23:00',
-          is_active: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }
-      : INITIAL_BRANCHES[0]);
+    branches[0] || {
+      id: 'main-branch',
+      business_id: activeBusiness.id,
+      name: 'Main Branch',
+      slug: 'main-branch',
+      address: '',
+      city: '',
+      state: '',
+      pincode: '',
+      phone: '',
+      email: user?.email || '',
+      gst_number: '',
+      tax_rate_percent: 5.0,
+      service_charge_percent: 0.0,
+      opening_time: '09:00',
+      closing_time: '23:00',
+      is_active: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
 
   // Hydrate data from Supabase whenever user or active tenant changes
   useEffect(() => {
@@ -472,12 +511,8 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               if (itemRes.error) console.error('Menu items fetch error:', itemRes.error);
 
               if (isMounted) {
-                if (catRes.data && catRes.data.length > 0) {
-                  setCategories(catRes.data);
-                }
-                if (itemRes.data && itemRes.data.length > 0) {
-                  setMenuItems(itemRes.data);
-                }
+                setCategories(catRes.data || []);
+                setMenuItems(itemRes.data || []);
               }
 
               // 4. Fetch orders for this business
@@ -491,9 +526,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               if (ordErr) console.error('Orders cloud fetch error:', ordErr);
 
               if (isMounted) {
-                if (ordData && ordData.length > 0) {
-                  setOrders(ordData);
-                }
+                setOrders(ordData || []);
               }
 
               // 5. Fetch customers for this business

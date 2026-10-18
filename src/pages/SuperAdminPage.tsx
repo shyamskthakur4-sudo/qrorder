@@ -57,7 +57,7 @@ export const SuperAdminPage: React.FC = () => {
         <StatCard
           title="Monthly Recurring (MRR)"
           value={formatCurrency(totalMrr, 'INR', '₹')}
-          change="+34.5%"
+          change={`${allBusinesses.length} tenants`}
           isPositive={true}
           subtext="From active subscriptions"
           icon={<DollarSign className="w-5 h-5 text-purple-400" />}
@@ -66,7 +66,7 @@ export const SuperAdminPage: React.FC = () => {
         <StatCard
           title="Annual Run Rate (ARR)"
           value={formatCurrency(totalArr, 'INR', '₹')}
-          change="+41.2%"
+          change="Annualized projection"
           isPositive={true}
           subtext="Projected annualized ARR"
           icon={<TrendingUp className="w-5 h-5 text-emerald-400" />}
@@ -75,7 +75,7 @@ export const SuperAdminPage: React.FC = () => {
         <StatCard
           title="Active Tenant Businesses"
           value={activeTenantsCount}
-          change="+2 this week"
+          change={`${allBusinesses.filter((b) => b.status === 'ACTIVE').length} active`}
           isPositive={true}
           subtext="Isolated Postgres RLS tenants"
           icon={<Building2 className="w-5 h-5 text-sky-400" />}
@@ -114,47 +114,59 @@ export const SuperAdminPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {allBusinesses.map((biz) => {
-                const sub = subscriptions.find((s) => s.business_id === biz.id);
-                return (
-                  <tr key={biz.id} className="hover:bg-slate-800/30 transition-colors">
-                    <td className="py-3.5 px-4 font-bold text-slate-100 flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
-                        {biz.name[0]}
-                      </div>
-                      <div>
-                        <span>{biz.name}</span>
-                        <span className="block text-[10px] text-slate-400 font-normal">{biz.email}</span>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 font-mono text-slate-400">{biz.slug}</td>
-                    <td className="py-3.5 px-4">
-                      <Badge variant="amber" size="sm">
-                        {biz.subscription_plan}
-                      </Badge>
-                    </td>
-                    <td className="py-3.5 px-4 font-mono font-bold text-slate-200">
-                      {sub ? formatCurrency(sub.amount, 'INR', '₹') : '₹2,999.00'}/mo
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <Badge variant={biz.status === 'ACTIVE' ? 'success' : 'danger'}>
-                        {biz.status}
-                      </Badge>
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-400">{formatDate(biz.created_at)}</td>
-                    <td className="py-3.5 px-4 text-right">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="text-xs"
-                        onClick={() => switchBusiness(biz.id)}
-                      >
-                        Enter Tenant
-                      </Button>
-                    </td>
-                  </tr>
-                );
-              })}
+              {allBusinesses.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-slate-500">
+                    <Building2 className="w-8 h-8 mx-auto text-slate-600 mb-2" />
+                    <p className="text-sm font-medium text-slate-300">No cafe tenants registered yet</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Registered cafe owners and businesses will appear here.
+                    </p>
+                  </td>
+                </tr>
+              ) : (
+                allBusinesses.map((biz) => {
+                  const sub = subscriptions.find((s) => s.business_id === biz.id);
+                  return (
+                    <tr key={biz.id} className="hover:bg-slate-800/30 transition-colors">
+                      <td className="py-3.5 px-4 font-bold text-slate-100 flex items-center gap-2.5">
+                        <div className="w-7 h-7 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
+                          {biz.name[0]}
+                        </div>
+                        <div>
+                          <span>{biz.name}</span>
+                          <span className="block text-[10px] text-slate-400 font-normal">{biz.email}</span>
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4 font-mono text-slate-400">{biz.slug}</td>
+                      <td className="py-3.5 px-4">
+                        <Badge variant="amber" size="sm">
+                          {biz.subscription_plan}
+                        </Badge>
+                      </td>
+                      <td className="py-3.5 px-4 font-mono font-bold text-slate-200">
+                        {sub ? formatCurrency(sub.amount, 'INR', '₹') : '₹2,999.00'}/mo
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <Badge variant={biz.status === 'ACTIVE' ? 'success' : 'danger'}>
+                          {biz.status}
+                        </Badge>
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-400">{formatDate(biz.created_at)}</td>
+                      <td className="py-3.5 px-4 text-right">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="text-xs"
+                          onClick={() => switchBusiness(biz.id)}
+                        >
+                          Enter Tenant
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </CardContent>

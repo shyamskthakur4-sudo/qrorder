@@ -281,7 +281,18 @@ export const OrdersPage: React.FC = () => {
 
       {/* Orders Grid / Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredOrders.map((order) => {
+        {filteredOrders.length === 0 ? (
+          <div className="col-span-full py-16 text-center text-slate-500 rounded-2xl border border-dashed border-slate-800">
+            <UtensilsCrossed className="w-10 h-10 mx-auto text-slate-600 mb-2" />
+            <p className="text-sm font-medium text-slate-300">No orders found</p>
+            <p className="text-xs text-slate-500 mt-1">
+              {statusFilter !== 'ALL'
+                ? `No orders currently in "${statusFilter}" status.`
+                : 'Orders placed via table QR code or New Counter Order (POS) will appear here in real time.'}
+            </p>
+          </div>
+        ) : (
+          filteredOrders.map((order) => {
           const tableObj = tables.find((t) => t.id === order.table_id);
           return (
             <Card
@@ -435,7 +446,8 @@ export const OrdersPage: React.FC = () => {
               </div>
             </Card>
           );
-        })}
+        })
+      )}
       </div>
 
       {/* New POS Order Modal */}

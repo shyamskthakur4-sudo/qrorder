@@ -158,52 +158,64 @@ export const InventoryPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {filteredInventory.map((item) => {
-                const isLow = item.current_stock <= item.minimum_stock;
-                return (
-                  <tr key={item.id} className="hover:bg-slate-800/30 transition-colors">
-                    <td className="py-3.5 px-4 font-bold text-slate-100">{item.name}</td>
-                    <td className="py-3.5 px-4 font-mono text-slate-400">{item.sku || '—'}</td>
-                    <td className="py-3.5 px-4 font-mono font-bold text-sm">
-                      <span className={isLow ? 'text-rose-400' : 'text-slate-100'}>
-                        {item.current_stock}
-                      </span>{' '}
-                      <span className="text-[10px] text-slate-400 font-normal">{item.unit}</span>
-                    </td>
-                    <td className="py-3.5 px-4 font-mono text-slate-400">
-                      {item.minimum_stock} {item.unit}
-                    </td>
-                    <td className="py-3.5 px-4 font-mono text-slate-200">
-                      {formatCurrency(item.unit_cost, 'INR', '₹')}
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-400">{item.supplier_name || 'General'}</td>
-                    <td className="py-3.5 px-4">
-                      {isLow ? (
-                        <Badge variant="danger" dot>
-                          Low Stock
-                        </Badge>
-                      ) : (
-                        <Badge variant="success" dot>
-                          Adequate
-                        </Badge>
-                      )}
-                    </td>
-                    <td className="py-3.5 px-4 text-right">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => {
-                          setSelectedItem(item);
-                          setIsStockModalOpen(true);
-                        }}
-                        className="text-xs py-1"
-                      >
-                        Adjust Stock
-                      </Button>
-                    </td>
-                  </tr>
-                );
-              })}
+              {filteredInventory.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-12 text-center text-slate-500">
+                    <Boxes className="w-8 h-8 mx-auto text-slate-600 mb-2" />
+                    <p className="text-sm font-medium text-slate-300">No inventory ingredients found</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Add coffee beans, dairy, packaging, and raw materials to track consumption and minimum threshold alerts.
+                    </p>
+                  </td>
+                </tr>
+              ) : (
+                filteredInventory.map((item) => {
+                  const isLow = item.current_stock <= item.minimum_stock;
+                  return (
+                    <tr key={item.id} className="hover:bg-slate-800/30 transition-colors">
+                      <td className="py-3.5 px-4 font-bold text-slate-100">{item.name}</td>
+                      <td className="py-3.5 px-4 font-mono text-slate-400">{item.sku || '—'}</td>
+                      <td className="py-3.5 px-4 font-mono font-bold text-sm">
+                        <span className={isLow ? 'text-rose-400' : 'text-slate-100'}>
+                          {item.current_stock}
+                        </span>{' '}
+                        <span className="text-[10px] text-slate-400 font-normal">{item.unit}</span>
+                      </td>
+                      <td className="py-3.5 px-4 font-mono text-slate-400">
+                        {item.minimum_stock} {item.unit}
+                      </td>
+                      <td className="py-3.5 px-4 font-mono text-slate-200">
+                        {formatCurrency(item.unit_cost, 'INR', '₹')}
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-400">{item.supplier_name || 'General'}</td>
+                      <td className="py-3.5 px-4">
+                        {isLow ? (
+                          <Badge variant="danger" dot>
+                            Low Stock
+                          </Badge>
+                        ) : (
+                          <Badge variant="success" dot>
+                            Adequate
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => {
+                            setSelectedItem(item);
+                            setIsStockModalOpen(true);
+                          }}
+                          className="text-xs py-1"
+                        >
+                          Adjust Stock
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </CardContent>

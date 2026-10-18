@@ -35,16 +35,6 @@ interface DashboardPageProps {
   onNavigate: (page: NavigationPage) => void;
 }
 
-const SALES_HOURLY_DATA = [
-  { time: '08:00', sales: 1200, orders: 4 },
-  { time: '10:00', sales: 3400, orders: 11 },
-  { time: '12:00', sales: 8900, orders: 24 },
-  { time: '14:00', sales: 12400, orders: 32 },
-  { time: '16:00', sales: 7800, orders: 19 },
-  { time: '18:00', sales: 15600, orders: 38 },
-  { time: '20:00', sales: 22400, orders: 51 },
-  { time: '22:00', sales: 18200, orders: 42 },
-];
 
 export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
   const {
@@ -75,6 +65,27 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
 
   // Top products
   const bestSellers = menuItems.filter((m) => m.is_bestseller).slice(0, 4);
+
+  // Dynamically compute intraday hourly sales velocity from real orders
+  const hourlySlots = ['08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '22:00'];
+  const salesVelocityData = hourlySlots.map((slot) => {
+    const slotHour = parseInt(slot.split(':')[0], 10);
+    const matchingOrders = orders.filter((o) => {
+      if (!o.created_at) return false;
+      const d = new Date(o.created_at);
+      const h = d.getHours();
+      return h >= slotHour && h < slotHour + 2;
+    });
+    const slotSales = matchingOrders.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+    return {
+      time: slot,
+      sales: slotSales,
+      orders: matchingOrders.length,
+    };
+  });
+
+  const peakSlot = [...salesVelocityData].sort((a, b) => b.sales - a.sales)[0];
+  const peakText = peakSlot && peakSlot.sales > 0 ? `Today's Peak: ${peakSlot.time}` : 'Real-time Velocity';
 
   const getStatusBadgeVariant = (status: string) => {
     switch (status) {
@@ -153,9 +164,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
         <StatCard
           title="Revenue Today"
           value={formatCurrency(totalRevenue, activeBusiness.currency, activeBusiness.currency_symbol)}
-          change="+18.4%"
-          isPositive={true}
-          subtext="vs yesterday (₹24,020)"
+          change={orders.length > 0 ? `${orders.length} orders total` : 'No orders yet'}
+          isPositive={totalRevenue > 0}
+          subtext="Real-time gross revenue"
           icon={<DollarSign className="w-5 h-5 text-amber-400" />}
           iconColor="from-amber-500/20 to-amber-600/10 border-amber-500/30 text-amber-400"
         />
@@ -163,9 +174,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
         <StatCard
           title="Orders Today"
           value={totalOrders}
-          change="+12.5%"
+          change={`${activeOrders.length} pending service`}
           isPositive={true}
-          subtext={`${activeOrders.length} currently active`}
+          subtext={`${totalOrders - activeOrders.length} completed`}
           icon={<ShoppingBag className="w-5 h-5 text-sky-400" />}
           iconColor="from-sky-500/20 to-sky-600/10 border-sky-500/30 text-sky-400"
         />
@@ -173,9 +184,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
         <StatCard
           title="Avg Order Value (AOV)"
           value={formatCurrency(aov, activeBusiness.currency, activeBusiness.currency_symbol)}
-          change="+6.2%"
+          change={totalOrders > 0 ? `${totalOrders} orders` : 'Awaiting orders'}
           isPositive={true}
-          subtext="Goal: ₹500.00"
+          subtext="Per dining ticket"
           icon={<TrendingUp className="w-5 h-5 text-emerald-400" />}
           iconColor="from-emerald-500/20 to-emerald-600/10 border-emerald-500/30 text-emerald-400"
         />
@@ -201,13 +212,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
               <CardDescription>Intraday revenue trajectory for {activeBranch.name}</CardDescription>
             </div>
             <Badge variant="amber" size="sm">
-              Today's Peak: 8:00 PM
+              {peakText}
             </Badge>
           </CardHeader>
           <CardContent>
             <div className="h-[280px] w-full pt-4">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={SALES_HOURLY_DATA} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <AreaChart data={salesVelocityData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.35} />
@@ -384,38 +395,46 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
             </button>
           </CardHeader>
           <CardContent className="space-y-3">
-            {bestSellers.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center gap-3 p-2.5 rounded-2xl bg-slate-800/40 hover:bg-slate-800/80 border border-slate-800 transition-all"
-              >
-                <img
-                  src={item.image_url}
-                  alt={item.name}
-                  className="w-12 h-12 rounded-xl object-cover shrink-0"
-                />
-                <div className="min-w-0 flex-1">
-                  <h4 className="text-xs font-semibold text-slate-200 truncate">{item.name}</h4>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span
-                      className={`w-2 h-2 rounded-full ${
-                        item.is_veg ? 'bg-emerald-500' : 'bg-rose-500'
-                      }`}
-                    />
-                    <span className="text-[11px] font-bold text-amber-400">
-                      {formatCurrency(
-                        item.price,
-                        activeBusiness.currency,
-                        activeBusiness.currency_symbol
-                      )}
-                    </span>
-                  </div>
-                </div>
-                <Badge variant="amber" size="sm">
-                  Top Seller
-                </Badge>
+            {bestSellers.length === 0 ? (
+              <div className="py-8 text-center text-slate-500">
+                <Flame className="w-8 h-8 mx-auto text-slate-600 mb-2" />
+                <p className="text-xs font-semibold text-slate-300">No bestsellers marked yet</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">Toggle bestseller flag on popular dishes in the Menu page.</p>
               </div>
-            ))}
+            ) : (
+              bestSellers.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex items-center gap-3 p-2.5 rounded-2xl bg-slate-800/40 hover:bg-slate-800/80 border border-slate-800 transition-all"
+                >
+                  <img
+                    src={item.image_url}
+                    alt={item.name}
+                    className="w-12 h-12 rounded-xl object-cover shrink-0"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <h4 className="text-xs font-semibold text-slate-200 truncate">{item.name}</h4>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          item.is_veg ? 'bg-emerald-500' : 'bg-rose-500'
+                        }`}
+                      />
+                      <span className="text-[11px] font-bold text-amber-400">
+                        {formatCurrency(
+                          item.price,
+                          activeBusiness.currency,
+                          activeBusiness.currency_symbol
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                  <Badge variant="amber" size="sm">
+                    Top Seller
+                  </Badge>
+                </div>
+              ))
+            )}
           </CardContent>
         </Card>
 
@@ -447,41 +466,49 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {orders.slice(0, 5).map((ord) => {
-                  const tableObj = tables.find((t) => t.id === ord.table_id);
-                  return (
-                    <tr key={ord.id} className="hover:bg-slate-800/30 transition-colors">
-                      <td className="py-3 font-mono font-bold text-amber-400">{ord.order_number}</td>
-                      <td className="py-3 font-medium text-slate-200">{ord.customer_name}</td>
-                      <td className="py-3 text-slate-400">
-                        {tableObj ? `${tableObj.table_number} (${tableObj.seating_area})` : 'Takeaway'}
-                      </td>
-                      <td className="py-3 font-bold text-slate-100">
-                        {formatCurrency(
-                          ord.total_amount,
-                          activeBusiness.currency,
-                          activeBusiness.currency_symbol
-                        )}
-                      </td>
-                      <td className="py-3">
-                        <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 font-mono text-[10px] uppercase">
-                          {ord.payment_method}
-                        </span>
-                      </td>
-                      <td className="py-3">
-                        <Badge variant={getStatusBadgeVariant(ord.status)} size="sm">
-                          {ord.status}
-                        </Badge>
-                      </td>
-                      <td className="py-3 text-slate-400 whitespace-nowrap">
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          {formatDate(ord.created_at)}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {orders.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-8 text-center text-slate-500">
+                      No orders placed yet. Orders scanned via table QR codes will appear here in real time.
+                    </td>
+                  </tr>
+                ) : (
+                  orders.slice(0, 5).map((ord) => {
+                    const tableObj = tables.find((t) => t.id === ord.table_id);
+                    return (
+                      <tr key={ord.id} className="hover:bg-slate-800/30 transition-colors">
+                        <td className="py-3 font-mono font-bold text-amber-400">{ord.order_number}</td>
+                        <td className="py-3 font-medium text-slate-200">{ord.customer_name}</td>
+                        <td className="py-3 text-slate-400">
+                          {tableObj ? `${tableObj.table_number} (${tableObj.seating_area})` : 'Takeaway'}
+                        </td>
+                        <td className="py-3 font-bold text-slate-100">
+                          {formatCurrency(
+                            ord.total_amount,
+                            activeBusiness.currency,
+                            activeBusiness.currency_symbol
+                          )}
+                        </td>
+                        <td className="py-3">
+                          <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 font-mono text-[10px] uppercase">
+                            {ord.payment_method}
+                          </span>
+                        </td>
+                        <td className="py-3">
+                          <Badge variant={getStatusBadgeVariant(ord.status)} size="sm">
+                            {ord.status}
+                          </Badge>
+                        </td>
+                        <td className="py-3 text-slate-400 whitespace-nowrap">
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {formatDate(ord.created_at)}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </CardContent>

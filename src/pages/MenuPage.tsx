@@ -332,7 +332,18 @@ export const MenuPage: React.FC = () => {
 
       {/* Menu Items Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {filteredItems.map((item) => {
+        {filteredItems.length === 0 ? (
+          <div className="col-span-full py-16 text-center text-slate-500 rounded-2xl border border-dashed border-slate-800">
+            <Sparkles className="w-10 h-10 mx-auto text-slate-600 mb-2" />
+            <p className="text-sm font-medium text-slate-300">No menu items found</p>
+            <p className="text-xs text-slate-500 mt-1">
+              {searchQuery || vegOnly || selectedCategoryId !== 'ALL'
+                ? 'No items match your active search or filters.'
+                : 'Get started by creating categories and adding food & drink items to your digital QR menu.'}
+            </p>
+          </div>
+        ) : (
+          filteredItems.map((item) => {
           const categoryObj = categories.find((c) => c.id === item.category_id);
           return (
             <Card
@@ -479,7 +490,8 @@ export const MenuPage: React.FC = () => {
               </div>
             </Card>
           );
-        })}
+        })
+      )}
       </div>
 
       {/* Add / Edit Food Item Modal */}

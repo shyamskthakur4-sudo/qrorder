@@ -216,7 +216,16 @@ export const TablesPage: React.FC<TablesPageProps> = ({ onNavigate }) => {
 
       {/* Tables Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        {filteredTables.map((table) => {
+        {filteredTables.length === 0 ? (
+          <div className="col-span-full py-16 text-center text-slate-500 rounded-2xl border border-dashed border-slate-800">
+            <QrCode className="w-10 h-10 mx-auto text-slate-600 mb-2" />
+            <p className="text-sm font-medium text-slate-300">No dining tables created yet</p>
+            <p className="text-xs text-slate-500 mt-1">
+              Click "Add New Table" to generate printable QR table stands for your restaurant.
+            </p>
+          </div>
+        ) : (
+          filteredTables.map((table) => {
           return (
             <Card
               key={table.id}
@@ -290,7 +299,8 @@ export const TablesPage: React.FC<TablesPageProps> = ({ onNavigate }) => {
               </div>
             </Card>
           );
-        })}
+        })
+      )}
       </div>
 
       {/* QR Code Presentation & Download Modal */}
