@@ -74,10 +74,10 @@ interface BusinessContextType {
   deleteTable: (tableId: string) => void;
 
   // Menu Handlers
-  createCategory: (name: string, description?: string) => void;
-  createMenuItem: (item: Partial<MenuItem>) => void;
-  updateMenuItem: (id: string, item: Partial<MenuItem>) => void;
-  deleteMenuItem: (id: string) => void;
+  createCategory: (name: string, description?: string) => Promise<MenuCategory> | void;
+  createMenuItem: (item: Partial<MenuItem>) => Promise<void> | void;
+  updateMenuItem: (id: string, item: Partial<MenuItem>) => Promise<void> | void;
+  deleteMenuItem: (id: string) => Promise<void> | void;
 
   // Inventory Handlers
   updateInventoryStock: (id: string, addedStock: number) => void;
@@ -451,15 +451,32 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 setTables(formattedTables);
               }
 
-              // 3. Fetch categories & menu items for this active branch
+              // 3. Fetch categories & menu items for this active business/branch
               const [catRes, itemRes] = await Promise.all([
-                supabase.from('menu_categories').select('*').eq('branch_id', currentBranchId).order('display_order', { ascending: true }),
-                supabase.from('menu_items').select('*, variants:menu_variants(*), addons:menu_addons(*)').eq('branch_id', currentBranchId).order('display_order', { ascending: true }),
+                supabase
+                  .from('menu_categories')
+                  .select('*')
+                  .eq('business_id', currentBizId)
+                  .or(`branch_id.eq.${currentBranchId},branch_id.is.null`)
+                  .order('sort_order', { ascending: true }),
+                supabase
+                  .from('menu_items')
+                  .select('*, variants:menu_variants(*), addons:menu_addons(*)')
+                  .eq('business_id', currentBizId)
+                  .or(`branch_id.eq.${currentBranchId},branch_id.is.null`)
+                  .order('sort_order', { ascending: true }),
               ]);
 
+              if (catRes.error) console.error('Menu categories fetch error:', catRes.error);
+              if (itemRes.error) console.error('Menu items fetch error:', itemRes.error);
+
               if (isMounted) {
-                setCategories(catRes.data || []);
-                setMenuItems(itemRes.data || []);
+                if (catRes.data && catRes.data.length > 0) {
+                  setCategories(catRes.data);
+                }
+                if (itemRes.data && itemRes.data.length > 0) {
+                  setMenuItems(itemRes.data);
+                }
               }
 
               // 4. Fetch orders for this branch
@@ -530,12 +547,12 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
   }, [user?.id, activeBusinessId, activeBranchId]);
 
-  // Supabase Realtime listeners for orders and tables
+  // Supabase Realtime listeners for orders, tables, menu_items, and menu_categories
   useEffect(() => {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured || !activeBusiness?.id) return;
 
     const channel = supabase
-      .channel('public:cafeos_realtime')
+      .channel(`cafeos_realtime_${activeBusiness.id}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'orders' },
@@ -567,6 +584,60 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               t.id === updatedTable.id ? { ...t, status: updatedTable.status } : t
             )
           );
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'menu_items' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newItem = payload.new as MenuItem;
+            if (newItem.business_id === activeBusiness.id) {
+              setMenuItems((prev) => {
+                if (prev.some((m) => m.id === newItem.id)) return prev;
+                return [...prev, newItem];
+              });
+            }
+          } else if (payload.eventType === 'UPDATE') {
+            const updated = payload.new as MenuItem;
+            if (updated.business_id === activeBusiness.id) {
+              setMenuItems((prev) =>
+                prev.map((m) => (m.id === updated.id ? { ...m, ...updated } : m))
+              );
+            }
+          } else if (payload.eventType === 'DELETE') {
+            const oldId = (payload.old as { id?: string })?.id;
+            if (oldId) {
+              setMenuItems((prev) => prev.filter((m) => m.id !== oldId));
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'menu_categories' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newCat = payload.new as MenuCategory;
+            if (newCat.business_id === activeBusiness.id) {
+              setCategories((prev) => {
+                if (prev.some((c) => c.id === newCat.id)) return prev;
+                return [...prev, newCat];
+              });
+            }
+          } else if (payload.eventType === 'UPDATE') {
+            const updated = payload.new as MenuCategory;
+            if (updated.business_id === activeBusiness.id) {
+              setCategories((prev) =>
+                prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c))
+              );
+            }
+          } else if (payload.eventType === 'DELETE') {
+            const oldId = (payload.old as { id?: string })?.id;
+            if (oldId) {
+              setCategories((prev) => prev.filter((c) => c.id !== oldId));
+            }
+          }
         }
       )
       .subscribe();
@@ -1088,7 +1159,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
-  const createCategory = (name: string, description?: string) => {
+  const createCategory = async (name: string, description?: string): Promise<MenuCategory> => {
     const newCat: MenuCategory = {
       id: generateUUID(),
       business_id: activeBusiness.id,
@@ -1103,25 +1174,44 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setCategories((prev) => [...prev, newCat]);
 
     if (isSupabaseConfigured) {
-      supabase.from('menu_categories').insert({
-        id: newCat.id,
-        business_id: newCat.business_id,
-        branch_id: activeBranch.id,
-        name: newCat.name,
-        slug: newCat.slug,
-        description: newCat.description || null,
-        display_order: newCat.sort_order,
-        is_active: true,
-      }).then();
+      try {
+        const { error: catErr } = await supabase.from('menu_categories').insert({
+          id: newCat.id,
+          business_id: newCat.business_id,
+          branch_id: isValidUUID(activeBranch.id) ? activeBranch.id : null,
+          name: newCat.name,
+          slug: newCat.slug,
+          description: newCat.description || null,
+          sort_order: newCat.sort_order,
+          is_active: true,
+        });
+        if (catErr) {
+          console.error('Failed to create menu category in Supabase:', catErr);
+        }
+      } catch (err) {
+        console.error('Category insert exception:', err);
+      }
     }
+    return newCat;
   };
 
-  const createMenuItem = (item: Partial<MenuItem>) => {
+  const createMenuItem = async (item: Partial<MenuItem>) => {
+    let catId = item.category_id;
+    if (!catId || !isValidUUID(catId)) {
+      const validCat = categories.find((c) => isValidUUID(c.id));
+      if (validCat) {
+        catId = validCat.id;
+      } else {
+        const createdCat = await createCategory('General');
+        catId = createdCat.id;
+      }
+    }
+
     const newItem: MenuItem = {
       id: generateUUID(),
       business_id: activeBusiness.id,
-      branch_id: activeBranch.id,
-      category_id: item.category_id || categories[0]?.id || '',
+      branch_id: isValidUUID(activeBranch.id) ? activeBranch.id : undefined,
+      category_id: catId,
       name: item.name || 'New Item',
       description: item.description || '',
       price: item.price || 0,
@@ -1143,41 +1233,106 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setMenuItems((prev) => [...prev, newItem]);
 
     if (isSupabaseConfigured) {
-      supabase.from('menu_items').insert({
-        id: newItem.id,
-        business_id: newItem.business_id,
-        branch_id: newItem.branch_id,
-        category_id: isValidUUID(newItem.category_id) ? newItem.category_id : null,
-        name: newItem.name,
-        description: newItem.description || null,
-        price: newItem.price,
-        gst_percent: newItem.gst_percent,
-        is_veg: newItem.is_veg,
-        is_available: newItem.is_available,
-        is_bestseller: newItem.is_bestseller,
-        prep_time_minutes: newItem.prep_time_minutes,
-        calories: newItem.calories || null,
-        image_url: newItem.image_url || null,
-        display_order: newItem.sort_order,
-      }).then();
+      try {
+        const { error: itemErr } = await supabase.from('menu_items').insert({
+          id: newItem.id,
+          business_id: newItem.business_id,
+          branch_id: isValidUUID(newItem.branch_id) ? newItem.branch_id : null,
+          category_id: newItem.category_id,
+          name: newItem.name,
+          description: newItem.description || null,
+          price: newItem.price,
+          gst_percent: newItem.gst_percent,
+          is_veg: newItem.is_veg,
+          is_available: newItem.is_available,
+          is_bestseller: newItem.is_bestseller,
+          is_new: newItem.is_new,
+          is_spicy: newItem.is_spicy,
+          prep_time_minutes: newItem.prep_time_minutes,
+          calories: newItem.calories || null,
+          image_url: newItem.image_url || null,
+          sort_order: newItem.sort_order,
+        });
+
+        if (itemErr) {
+          console.error('Failed to create menu item in Supabase:', itemErr);
+        }
+
+        if (newItem.variants && newItem.variants.length > 0) {
+          const variantsPayload = newItem.variants.map((v) => ({
+            id: isValidUUID(v.id) ? v.id : generateUUID(),
+            menu_item_id: newItem.id,
+            name: v.name,
+            price: v.price,
+            is_available: v.is_available ?? true,
+          }));
+          const { error: varErr } = await supabase.from('menu_variants').insert(variantsPayload);
+          if (varErr) console.warn('Menu variants insert note:', varErr);
+        }
+
+        if (newItem.addons && newItem.addons.length > 0) {
+          const addonsPayload = newItem.addons.map((a) => ({
+            id: isValidUUID(a.id) ? a.id : generateUUID(),
+            menu_item_id: newItem.id,
+            name: a.name,
+            price: a.price,
+            is_available: a.is_available ?? true,
+            max_selection: a.max_selection ?? 1,
+          }));
+          const { error: addErr } = await supabase.from('menu_addons').insert(addonsPayload);
+          if (addErr) console.warn('Menu addons insert note:', addErr);
+        }
+      } catch (err) {
+        console.error('Menu item insert exception:', err);
+      }
     }
   };
 
-  const updateMenuItem = (id: string, updated: Partial<MenuItem>) => {
+  const updateMenuItem = async (id: string, updated: Partial<MenuItem>) => {
     setMenuItems((prev) =>
       prev.map((item) => (item.id === id ? { ...item, ...updated, updated_at: new Date().toISOString() } : item))
     );
 
     if (isSupabaseConfigured && isValidUUID(id)) {
-      supabase.from('menu_items').update({ ...updated, updated_at: new Date().toISOString() }).eq('id', id).then();
+      try {
+        const dbPayload: Record<string, any> = { updated_at: new Date().toISOString() };
+        if (updated.category_id && isValidUUID(updated.category_id)) dbPayload.category_id = updated.category_id;
+        if (updated.name !== undefined) dbPayload.name = updated.name;
+        if (updated.description !== undefined) dbPayload.description = updated.description;
+        if (updated.price !== undefined) dbPayload.price = updated.price;
+        if (updated.gst_percent !== undefined) dbPayload.gst_percent = updated.gst_percent;
+        if (updated.is_veg !== undefined) dbPayload.is_veg = updated.is_veg;
+        if (updated.is_available !== undefined) dbPayload.is_available = updated.is_available;
+        if (updated.is_bestseller !== undefined) dbPayload.is_bestseller = updated.is_bestseller;
+        if (updated.is_new !== undefined) dbPayload.is_new = updated.is_new;
+        if (updated.is_spicy !== undefined) dbPayload.is_spicy = updated.is_spicy;
+        if (updated.prep_time_minutes !== undefined) dbPayload.prep_time_minutes = updated.prep_time_minutes;
+        if (updated.calories !== undefined) dbPayload.calories = updated.calories;
+        if (updated.image_url !== undefined) dbPayload.image_url = updated.image_url;
+        if (updated.sort_order !== undefined) dbPayload.sort_order = updated.sort_order;
+
+        const { error: updateErr } = await supabase.from('menu_items').update(dbPayload).eq('id', id);
+        if (updateErr) {
+          console.error('Failed to update menu item in Supabase:', updateErr);
+        }
+      } catch (err) {
+        console.error('Menu item update exception:', err);
+      }
     }
   };
 
-  const deleteMenuItem = (id: string) => {
+  const deleteMenuItem = async (id: string) => {
     setMenuItems((prev) => prev.filter((item) => item.id !== id));
 
     if (isSupabaseConfigured && isValidUUID(id)) {
-      supabase.from('menu_items').delete().eq('id', id).then();
+      try {
+        const { error: delErr } = await supabase.from('menu_items').delete().eq('id', id);
+        if (delErr) {
+          console.error('Failed to delete menu item from Supabase:', delErr);
+        }
+      } catch (err) {
+        console.error('Menu item delete exception:', err);
+      }
     }
   };
 

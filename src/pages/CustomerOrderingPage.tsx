@@ -146,14 +146,24 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
           setCloudTable(tbl);
 
           const [catRes, itemRes, coupRes] = await Promise.all([
-            supabase.from('menu_categories').select('*').eq('branch_id', br.id).order('display_order', { ascending: true }),
-            supabase.from('menu_items').select('*, variants:menu_variants(*), addons:menu_addons(*)').eq('branch_id', br.id).order('display_order', { ascending: true }),
+            supabase
+              .from('menu_categories')
+              .select('*')
+              .eq('business_id', biz.id)
+              .or(`branch_id.eq.${br.id},branch_id.is.null`)
+              .order('sort_order', { ascending: true }),
+            supabase
+              .from('menu_items')
+              .select('*, variants:menu_variants(*), addons:menu_addons(*)')
+              .eq('business_id', biz.id)
+              .or(`branch_id.eq.${br.id},branch_id.is.null`)
+              .order('sort_order', { ascending: true }),
             supabase.from('coupons').select('*').eq('business_id', biz.id).eq('is_active', true),
           ]);
 
           if (isMounted) {
-            if (catRes.data && catRes.data.length > 0) setCloudCategories(catRes.data);
-            if (itemRes.data && itemRes.data.length > 0) setCloudMenuItems(itemRes.data);
+            if (catRes.data) setCloudCategories(catRes.data);
+            if (itemRes.data) setCloudMenuItems(itemRes.data);
             if (coupRes.data) setCloudCoupons(coupRes.data);
           }
           return;
@@ -194,14 +204,24 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
           setCloudTable(tbl);
 
           const [catRes, itemRes, coupRes] = await Promise.all([
-            supabase.from('menu_categories').select('*').eq('branch_id', br.id).order('display_order', { ascending: true }),
-            supabase.from('menu_items').select('*, variants:menu_variants(*), addons:menu_addons(*)').eq('branch_id', br.id).order('display_order', { ascending: true }),
+            supabase
+              .from('menu_categories')
+              .select('*')
+              .eq('business_id', biz.id)
+              .or(`branch_id.eq.${br.id},branch_id.is.null`)
+              .order('sort_order', { ascending: true }),
+            supabase
+              .from('menu_items')
+              .select('*, variants:menu_variants(*), addons:menu_addons(*)')
+              .eq('business_id', biz.id)
+              .or(`branch_id.eq.${br.id},branch_id.is.null`)
+              .order('sort_order', { ascending: true }),
             supabase.from('coupons').select('*').eq('business_id', biz.id).eq('is_active', true),
           ]);
 
           if (isMounted) {
-            if (catRes.data && catRes.data.length > 0) setCloudCategories(catRes.data);
-            if (itemRes.data && itemRes.data.length > 0) setCloudMenuItems(itemRes.data);
+            if (catRes.data) setCloudCategories(catRes.data);
+            if (itemRes.data) setCloudMenuItems(itemRes.data);
             if (coupRes.data) setCloudCoupons(coupRes.data);
           }
         }
@@ -396,6 +416,89 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
       supabase.removeChannel(channel);
     };
   }, [placedOrderId, hasAutoPromptedReview]);
+
+  // Real-time synchronization for customer QR menu items and categories
+  useEffect(() => {
+    if (!isSupabaseConfigured || !effectiveBusiness?.id) return;
+
+    const channel = supabase
+      .channel(`cust_menu_${effectiveBusiness.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'menu_items',
+          filter: `business_id=eq.${effectiveBusiness.id}`,
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newItem = payload.new as MenuItem;
+            setCloudMenuItems((prev) => {
+              const base = prev.length > 0 ? prev : menuItems;
+              if (base.some((m) => m.id === newItem.id)) {
+                return base.map((m) => (m.id === newItem.id ? { ...m, ...newItem } : m));
+              }
+              return [...base, newItem];
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            const updated = payload.new as MenuItem;
+            setCloudMenuItems((prev) => {
+              const base = prev.length > 0 ? prev : menuItems;
+              return base.map((m) => (m.id === updated.id ? { ...m, ...updated } : m));
+            });
+          } else if (payload.eventType === 'DELETE') {
+            const oldId = (payload.old as { id?: string })?.id;
+            if (oldId) {
+              setCloudMenuItems((prev) => {
+                const base = prev.length > 0 ? prev : menuItems;
+                return base.filter((m) => m.id !== oldId);
+              });
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'menu_categories',
+          filter: `business_id=eq.${effectiveBusiness.id}`,
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newCat = payload.new as MenuCategory;
+            setCloudCategories((prev) => {
+              const base = prev.length > 0 ? prev : categories;
+              if (base.some((c) => c.id === newCat.id)) {
+                return base.map((c) => (c.id === newCat.id ? { ...c, ...newCat } : c));
+              }
+              return [...base, newCat];
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            const updated = payload.new as MenuCategory;
+            setCloudCategories((prev) => {
+              const base = prev.length > 0 ? prev : categories;
+              return base.map((c) => (c.id === updated.id ? { ...c, ...updated } : c));
+            });
+          } else if (payload.eventType === 'DELETE') {
+            const oldId = (payload.old as { id?: string })?.id;
+            if (oldId) {
+              setCloudCategories((prev) => {
+                const base = prev.length > 0 ? prev : categories;
+                return base.filter((c) => c.id !== oldId);
+              });
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [effectiveBusiness?.id, menuItems, categories]);
 
   // Auto prompt Google Review when order status reaches COMPLETED
   useEffect(() => {

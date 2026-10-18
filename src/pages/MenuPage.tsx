@@ -143,7 +143,7 @@ export const MenuPage: React.FC = () => {
     setIsItemModalOpen(true);
   };
 
-  const handleSaveItem = (e: React.FormEvent) => {
+  const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name.trim() || !formData.price) {
       error('Missing details', 'Item name and base price are required.');
@@ -169,10 +169,10 @@ export const MenuPage: React.FC = () => {
     };
 
     if (editingItem) {
-      updateMenuItem(editingItem.id, payload);
+      await updateMenuItem(editingItem.id, payload);
       success('Item Updated', `"${formData.name}" has been updated.`);
     } else {
-      createMenuItem(payload);
+      await createMenuItem(payload);
       success('Item Created', `"${formData.name}" added to digital menu.`);
     }
 
@@ -224,10 +224,10 @@ export const MenuPage: React.FC = () => {
     }));
   };
 
-  const handleCreateCategorySubmit = (e: React.FormEvent) => {
+  const handleCreateCategorySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCatName.trim()) return;
-    createCategory(newCatName.trim(), newCatDesc.trim());
+    await createCategory(newCatName.trim(), newCatDesc.trim());
     success('Category Added', `Category "${newCatName}" is ready.`);
     setNewCatName('');
     setNewCatDesc('');
