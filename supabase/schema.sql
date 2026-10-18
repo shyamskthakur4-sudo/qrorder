@@ -624,3 +624,65 @@ CREATE POLICY "Business isolated campaigns" ON public.campaigns
 DROP POLICY IF EXISTS "Business isolated staff management" ON public.staff;
 CREATE POLICY "Business isolated staff management" ON public.staff
     FOR ALL USING (business_id IN (SELECT public.get_user_business_ids()));
+
+-- 25. PUSH NOTIFICATION SUBSCRIPTIONS (Web Push / Swiggy Style)
+CREATE TABLE IF NOT EXISTS public.push_subscriptions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    business_id UUID NOT NULL REFERENCES public.businesses(id) ON DELETE CASCADE,
+    branch_id UUID REFERENCES public.branches(id) ON DELETE SET NULL,
+    customer_id UUID REFERENCES public.customers(id) ON DELETE SET NULL,
+    session_id TEXT NOT NULL,
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    user_agent TEXT,
+    platform VARCHAR(30) DEFAULT 'WEB',
+    is_active BOOLEAN DEFAULT true,
+    last_used_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
+    failed_attempts INT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_sub_biz ON public.push_subscriptions(business_id);
+CREATE INDEX IF NOT EXISTS idx_push_sub_cust ON public.push_subscriptions(customer_id);
+CREATE INDEX IF NOT EXISTS idx_push_sub_sess ON public.push_subscriptions(session_id);
+CREATE INDEX IF NOT EXISTS idx_push_sub_active ON public.push_subscriptions(is_active) WHERE is_active = true;
+
+ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Public can insert push subscriptions"
+    ON public.push_subscriptions FOR INSERT TO public WITH CHECK (true);
+
+CREATE POLICY "Public can update own push subscription"
+    ON public.push_subscriptions FOR UPDATE TO public USING (true) WITH CHECK (true);
+
+CREATE POLICY "Public can select push subscriptions"
+    ON public.push_subscriptions FOR SELECT TO public USING (true);
+
+-- 26. PUSH NOTIFICATION DELIVERY & AUDIT LOGS
+CREATE TABLE IF NOT EXISTS public.push_notification_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    business_id UUID NOT NULL REFERENCES public.businesses(id) ON DELETE CASCADE,
+    campaign_id UUID REFERENCES public.campaigns(id) ON DELETE SET NULL,
+    order_id UUID REFERENCES public.orders(id) ON DELETE SET NULL,
+    notification_type VARCHAR(50) NOT NULL DEFAULT 'ORDER_STATUS',
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    recipient_count INT DEFAULT 0,
+    success_count INT DEFAULT 0,
+    failure_count INT DEFAULT 0,
+    status VARCHAR(30) NOT NULL DEFAULT 'SENT',
+    error_details JSONB DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_logs_biz ON public.push_notification_logs(business_id);
+
+ALTER TABLE public.push_notification_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Public can view push notification logs"
+    ON public.push_notification_logs FOR SELECT TO public USING (true);
+
+CREATE POLICY "Public can insert push notification logs"
+    ON public.push_notification_logs FOR INSERT TO public WITH CHECK (true);

@@ -41,7 +41,37 @@ self.addEventListener('push', (event) => {
     ],
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(
+    Promise.all([
+      self.registration.showNotification(title, options),
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+        clients.forEach((client) => {
+          client.postMessage({
+            type: 'PUSH_EVENT_RECEIVED',
+            payload: { title, ...options },
+          });
+        });
+      }),
+    ])
+  );
+});
+
+// Handle subscription rotation from browser push service
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    self.registration.pushManager
+      .subscribe(event.oldSubscription ? event.oldSubscription.options : { userVisibleOnly: true })
+      .then((subscription) => {
+        return self.clients.matchAll({ type: 'window' }).then((clients) => {
+          clients.forEach((client) => {
+            client.postMessage({
+              type: 'PUSH_SUBSCRIPTION_ROTATED',
+              subscription: subscription.toJSON(),
+            });
+          });
+        });
+      })
+  );
 });
 
 // Handle notification display request dispatched from web client

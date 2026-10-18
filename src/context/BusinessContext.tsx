@@ -19,7 +19,7 @@ import {
 import { generateUUID, isValidUUID } from '../lib/utils';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { useAuth } from './AuthContext';
-import { showLockScreenNotification } from '../lib/pushNotifications';
+import { showLockScreenNotification, dispatchWebPushViaEdge } from '../lib/pushNotifications';
 
 interface BusinessContextType {
   // Tenant states
@@ -78,7 +78,8 @@ interface BusinessContextType {
     message: string;
     discountCode?: string;
     linkUrl?: string;
-  }) => void;
+    notificationType?: 'OFFER' | 'ANNOUNCEMENT' | 'ORDER_STATUS' | 'TEST';
+  }) => Promise<any> | void;
 
   // Real-time sound alert toggle
   playKitchenAlert: () => void;
@@ -842,11 +843,12 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
-  const sendSmartBroadcast = (campaignData: {
+  const sendSmartBroadcast = async (campaignData: {
     title: string;
     message: string;
     discountCode?: string;
     linkUrl?: string;
+    notificationType?: 'OFFER' | 'ANNOUNCEMENT' | 'ORDER_STATUS' | 'TEST';
   }) => {
     const newCampaign: Campaign = {
       id: generateUUID(),
@@ -864,7 +866,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     setCampaigns((prev) => [newCampaign, ...prev]);
 
-    // Send Realtime Broadcast via Supabase
+    // 1. Send Realtime Broadcast via Supabase (for currently open customer browser tabs)
     if (isSupabaseConfigured) {
       const bCastChannel = supabase.channel('public:cafeos_broadcasts');
       bCastChannel.subscribe((chStatus) => {
@@ -889,7 +891,26 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       });
     }
 
-    // Trigger immediate native lock-screen notification if browser has permission
+    // 2. Server-side Web Push dispatch via Edge Function (reaches lock screens of all subscribed diner devices)
+    try {
+      await dispatchWebPushViaEdge({
+        businessId: activeBusiness.id,
+        campaignId: newCampaign.id,
+        notificationType: campaignData.notificationType || 'OFFER',
+        notification: {
+          title: `${activeBusiness.name}: ${campaignData.title}`,
+          body: campaignData.message,
+          icon: activeBusiness.logo_url || '/favicon.svg',
+          tag: `campaign_${newCampaign.id}`,
+          url: campaignData.linkUrl || (typeof window !== 'undefined' ? window.location.href : '/'),
+          chimeType: 'celebrate',
+        },
+      });
+    } catch (pushErr) {
+      console.warn('Edge push broadcast notice:', pushErr);
+    }
+
+    // 3. Trigger immediate native lock-screen notification preview on sender's device if browser has permission
     showLockScreenNotification({
       title: `${activeBusiness.name}: ${campaignData.title}`,
       body: campaignData.message,

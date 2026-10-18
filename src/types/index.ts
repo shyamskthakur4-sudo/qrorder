@@ -351,3 +351,37 @@ export interface Subscription {
   updated_at: string;
   business_name?: string;
 }
+
+export interface PushSubscriptionRecord {
+  id: string;
+  business_id: string;
+  branch_id?: string;
+  customer_id?: string;
+  session_id: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  user_agent?: string;
+  platform?: 'ANDROID' | 'IOS_PWA' | 'DESKTOP' | 'WEB';
+  is_active: boolean;
+  last_used_at: string;
+  failed_attempts: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PushNotificationLog {
+  id: string;
+  business_id: string;
+  campaign_id?: string;
+  order_id?: string;
+  notification_type: 'ORDER_STATUS' | 'OFFER' | 'ANNOUNCEMENT' | 'TEST';
+  title: string;
+  body: string;
+  recipient_count: number;
+  success_count: number;
+  failure_count: number;
+  status: 'SENT' | 'FAILED' | 'PARTIAL' | 'PENDING';
+  error_details?: any;
+  created_at: string;
+}

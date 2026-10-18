@@ -38,6 +38,11 @@ import {
   requestNotificationPermission,
   showLockScreenNotification,
   getOrderStatusNotificationConfig,
+  dispatchWebPushViaEdge,
+  isIosDevice,
+  isIosPwaInstalled,
+  getOrCreateDinerSessionId,
+  subscribeToPushServiceAndSave,
 } from '../lib/pushNotifications';
 
 interface CartItem {
@@ -296,29 +301,35 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
   });
   const [isVipNotifModalOpen, setIsVipNotifModalOpen] = useState<boolean>(false);
 
-  // Proactive VIP Notification Permission Modal on QR code scan
+  // Proactive VIP Notification Permission Modal on first visit to a restaurant's QR menu
   useEffect(() => {
-    // 1. Warm-up and register Service Worker immediately on mount
     registerServiceWorker();
 
-    // 2. Automatically prompt customer when scanning QR code as soon as menu is ready if permissions not yet decided
     if (typeof window !== 'undefined' && 'Notification' in window) {
       const currentPerm = Notification.permission;
       setNotificationPerm(currentPerm);
-      if (currentPerm === 'default' && !isCloudLoading) {
+
+      const hasViewedOptIn = sessionStorage.getItem(`cafeos_optin_viewed_${effectiveBusiness.id}`);
+      if (currentPerm === 'default' && !isCloudLoading && !hasViewedOptIn) {
         const timer = setTimeout(() => {
           setIsVipNotifModalOpen(true);
-        }, 350);
+        }, 400);
         return () => clearTimeout(timer);
       }
     }
-  }, [isCloudLoading]);
+  }, [isCloudLoading, effectiveBusiness.id]);
 
   const handleRequestNotifications = async () => {
     try {
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem(`cafeos_optin_viewed_${effectiveBusiness.id}`, 'true');
+      }
+
       const perm = await requestNotificationPermission({
         businessName: effectiveBusiness.name,
         logoUrl: effectiveBusiness.logo_url,
+        businessId: effectiveBusiness.id,
+        branchId: effectiveBranch.id,
       });
 
       setNotificationPerm(perm);
@@ -336,6 +347,13 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
     } catch (e) {
       console.warn('Notification permission error:', e);
     }
+  };
+
+  const handleDismissNotificationOptIn = () => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem(`cafeos_optin_viewed_${effectiveBusiness.id}`, 'true');
+    }
+    setIsVipNotifModalOpen(false);
   };
 
   // Listen to live marketing broadcasts with Lock-Screen Push
@@ -440,6 +458,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
         effectiveBusiness.name
       );
 
+      // Local client notification with chime & vibration
       showLockScreenNotification({
         title: cfg.title,
         body: cfg.body,
@@ -448,6 +467,27 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
         orderId: currentPlacedOrder.id,
         tag: `order_status_${currentPlacedOrder.id}`,
         url: window.location.href,
+      });
+
+      // Server-side Web Push dispatch via Edge Function (reaches lock screen when tab is backgrounded / device asleep)
+      dispatchWebPushViaEdge({
+        businessId: effectiveBusiness.id,
+        branchId: effectiveBranch.id,
+        customerId: currentPlacedOrder.customer_id || undefined,
+        sessionId: getOrCreateDinerSessionId(),
+        orderId: currentPlacedOrder.id,
+        notificationType: 'ORDER_STATUS',
+        notification: {
+          title: cfg.title,
+          body: cfg.body,
+          icon: effectiveBusiness.logo_url || '/favicon.svg',
+          tag: `order_status_${currentPlacedOrder.id}`,
+          url: window.location.href,
+          orderId: currentPlacedOrder.id,
+          chimeType: cfg.chimeType,
+        },
+      }).catch((err) => {
+        console.warn('Edge push status dispatch notice:', err);
       });
 
       if (newStatus === 'COMPLETED' && !hasAutoPromptedReview) {
@@ -785,6 +825,36 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
       tag: `order_status_${newOrder.id}`,
       url: window.location.href,
     });
+
+    // Also dispatch server-side Web Push for placed order
+    dispatchWebPushViaEdge({
+      businessId: effectiveBusiness.id,
+      branchId: effectiveBranch.id,
+      customerId: newOrder.customer_id || undefined,
+      sessionId: getOrCreateDinerSessionId(),
+      orderId: newOrder.id,
+      notificationType: 'ORDER_STATUS',
+      notification: {
+        title: placedNotifCfg.title,
+        body: placedNotifCfg.body,
+        icon: effectiveBusiness.logo_url || '/favicon.svg',
+        tag: `order_status_${newOrder.id}`,
+        url: window.location.href,
+        orderId: newOrder.id,
+        chimeType: placedNotifCfg.chimeType,
+      },
+    }).catch((err) => {
+      console.warn('Edge push dispatch note on place order:', err);
+    });
+
+    // Link customer to push subscription in Supabase if customer_id exists
+    if (newOrder.customer_id) {
+      subscribeToPushServiceAndSave({
+        businessId: effectiveBusiness.id,
+        branchId: effectiveBranch.id,
+        customerId: newOrder.customer_id,
+      }).catch(() => {});
+    }
 
     if (custName.trim() && typeof window !== 'undefined') {
       localStorage.setItem('cafeos_cust_name', custName.trim());
@@ -1682,10 +1752,10 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
         )}
       </Modal>
 
-      {/* Swiggy/Zomato Instant Lock-Screen VIP Notification Modal */}
+      {/* Swiggy/Zomato Instant Lock-Screen Notification Opt-In Modal */}
       <Modal
         isOpen={isVipNotifModalOpen}
-        onClose={() => setIsVipNotifModalOpen(false)}
+        onClose={handleDismissNotificationOptIn}
         maxWidth="sm"
         showCloseButton={true}
       >
@@ -1700,42 +1770,54 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
             </div>
 
             <div className="flex items-center justify-center gap-1.5 mb-1.5">
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/30 flex items-center gap-1">
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/30 flex items-center gap-1">
                 <Flame className="w-3 h-3 fill-current" />
-                <span>Swiggy & Zomato Style Alert</span>
+                <span>Swiggy & Zomato Style Updates</span>
               </span>
             </div>
 
             <h3 className="text-base font-extrabold text-slate-100 font-['Outfit']">
-              Live Cooking & Serving Updates!
+              Stay Updated with {effectiveBusiness.name}
             </h3>
             <p className="text-xs text-slate-300 mt-1 max-w-xs mx-auto leading-relaxed">
-              Tap <strong>"Allow Notifications"</strong> on the prompt to track your food live on your phone lock screen without keeping this page open.
+              Enable lock-screen notifications to receive live updates, exclusive table deals, and special events directly on your phone.
             </p>
 
             <div className="mt-3.5 space-y-2 text-left">
-              <div className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-200">
-                <span className="text-base shrink-0">🍳</span>
+              <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-200">
+                <span className="text-lg shrink-0">🍳</span>
                 <div className="min-w-0">
-                  <strong className="text-amber-300 block">Live Kitchen Prep</strong>
-                  <span className="text-[10px] text-slate-400">Alerts when chef starts cooking your dishes</span>
+                  <strong className="text-amber-300 block text-[12px]">Live Order Tracking</strong>
+                  <span className="text-[10px] text-slate-400">Lock-screen alerts when chef starts cooking & when food is hot and ready at Table {effectiveTable?.table_number || '01'}</span>
                 </div>
               </div>
-              <div className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-200">
-                <span className="text-base shrink-0">🛎️</span>
+              <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-200">
+                <span className="text-lg shrink-0">🎁</span>
                 <div className="min-w-0">
-                  <strong className="text-emerald-300 block">Hot & Ready Chime</strong>
-                  <span className="text-[10px] text-slate-400">Chimes & vibrates when food is ready at Table {effectiveTable?.table_number || '01'}</span>
+                  <strong className="text-emerald-300 block text-[12px]">Exclusive Table Offers</strong>
+                  <span className="text-[10px] text-slate-400">Secret flash discounts, happy hour specials, and member perks</span>
                 </div>
               </div>
-              <div className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-200">
-                <span className="text-base shrink-0">📱</span>
+              <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-200">
+                <span className="text-lg shrink-0">📢</span>
                 <div className="min-w-0">
-                  <strong className="text-purple-300 block">Lock Screen Push</strong>
-                  <span className="text-[10px] text-slate-400">Works even if phone screen is locked or asleep</span>
+                  <strong className="text-purple-300 block text-[12px]">Event Announcements</strong>
+                  <span className="text-[10px] text-slate-400">Chef seasonal tastings, live music nights, and weekend specials</span>
                 </div>
               </div>
             </div>
+
+            {/* iOS installation guidance when viewing in mobile Safari */}
+            {isIosDevice() && !isIosPwaInstalled() && (
+              <div className="mt-3 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-left text-[11px] text-amber-200 space-y-1">
+                <p className="font-bold flex items-center gap-1">
+                  <span>📱 iOS Lock-Screen Requirement:</span>
+                </p>
+                <p className="text-slate-300 text-[10px] leading-relaxed">
+                  Apple Safari requires adding this app to your Home Screen for lock-screen push. Tap <strong>Share (⎋)</strong> ➔ <strong>"Add to Home Screen"</strong>. (Android activates directly below!)
+                </p>
+              </div>
+            )}
           </div>
 
           {notificationPerm === 'denied' ? (
@@ -1749,9 +1831,9 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
               <Button
                 variant="secondary"
                 className="w-full text-xs"
-                onClick={() => setIsVipNotifModalOpen(false)}
+                onClick={handleDismissNotificationOptIn}
               >
-                Got It
+                Continue to Menu
               </Button>
             </div>
           ) : (
@@ -1762,14 +1844,14 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
                 onClick={handleRequestNotifications}
               >
                 <Bell className="w-4 h-4 fill-current" />
-                <span>Allow System Notifications</span>
+                <span>Enable Notifications</span>
               </Button>
               <button
                 type="button"
-                onClick={() => setIsVipNotifModalOpen(false)}
+                onClick={handleDismissNotificationOptIn}
                 className="w-full py-2 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors cursor-pointer text-center"
               >
-                Maybe Later, Browse Menu
+                Maybe Later, Continue to Menu
               </button>
             </div>
           )}
