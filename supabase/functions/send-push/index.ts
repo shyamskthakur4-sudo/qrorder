@@ -52,22 +52,53 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // 1. Fetch active push subscriptions for this tenant / diner
+    // 1. If order_id is present but customer_id is missing, look up customer_id from order
+    if (order_id && !customer_id) {
+      try {
+        const { data: ord } = await supabase
+          .from('orders')
+          .select('customer_id')
+          .eq('id', order_id)
+          .maybeSingle();
+        if (ord?.customer_id) {
+          customer_id = ord.customer_id;
+        }
+      } catch {}
+    }
+
+    // 2. Fetch active push subscriptions for this tenant / diner / order
     let query = supabase
       .from('push_subscriptions')
       .select('*')
       .eq('business_id', business_id)
       .eq('is_active', true);
 
-    if (customer_id) {
-      query = query.eq('customer_id', customer_id);
-    } else if (session_id) {
-      query = query.eq('session_id', session_id);
+    const conditions: string[] = [];
+    if (order_id) conditions.push(`order_id.eq.${order_id}`);
+    if (customer_id) conditions.push(`customer_id.eq.${customer_id}`);
+    if (session_id) conditions.push(`session_id.eq.${session_id}`);
+
+    if (conditions.length > 0) {
+      query = query.or(conditions.join(','));
     }
 
-    const { data: subscriptions, error: subError } = await query;
+    let { data: subscriptions, error: subError } = await query;
     if (subError) {
       throw subError;
+    }
+
+    // If it's a TEST notification and no specific target matched, fallback to the latest active subscription for the business
+    if (notification_type === 'TEST' && (!subscriptions || subscriptions.length === 0)) {
+      const { data: fallbackSubs } = await supabase
+        .from('push_subscriptions')
+        .select('*')
+        .eq('business_id', business_id)
+        .eq('is_active', true)
+        .order('updated_at', { ascending: false })
+        .limit(5);
+      if (fallbackSubs && fallbackSubs.length > 0) {
+        subscriptions = fallbackSubs;
+      }
     }
 
     const payloadString = JSON.stringify({

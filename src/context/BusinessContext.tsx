@@ -19,7 +19,7 @@ import {
 import { generateUUID, isValidUUID } from '../lib/utils';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { useAuth } from './AuthContext';
-import { showLockScreenNotification, dispatchWebPushViaEdge } from '../lib/pushNotifications';
+import { showLockScreenNotification, dispatchWebPushViaEdge, getOrderStatusNotificationConfig } from '../lib/pushNotifications';
 
 interface BusinessContextType {
   // Tenant states
@@ -1354,6 +1354,41 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         });
       } catch (bcErr) {
         console.warn('Realtime status broadcast notice:', bcErr);
+      }
+    }
+
+    // 3. Dispatch real Web Push via Edge Function to wake up diner's lock screen
+    if (targetOrder) {
+      try {
+        const table = tables.find((t) => t.id === targetOrder.table_id);
+        const tableName = table ? table.table_number : undefined;
+        const notifCfg = getOrderStatusNotificationConfig(
+          status,
+          targetOrder.order_number,
+          tableName,
+          activeBusiness.name
+        );
+
+        dispatchWebPushViaEdge({
+          businessId: targetOrder.business_id || activeBusiness.id,
+          branchId: targetOrder.branch_id || activeBranch?.id,
+          customerId: targetOrder.customer_id || undefined,
+          orderId: targetOrder.id,
+          notificationType: 'ORDER_STATUS',
+          notification: {
+            title: notifCfg.title,
+            body: notifCfg.body,
+            icon: activeBusiness.logo_url || '/favicon.svg',
+            tag: `order_status_${targetOrder.id}`,
+            url: `/order/${targetOrder.table_id || ''}`,
+            orderId: targetOrder.id,
+            chimeType: notifCfg.chimeType,
+          },
+        }).catch((err) => {
+          console.warn('Web push status dispatch error:', err);
+        });
+      } catch (pushEx) {
+        console.warn('Push notification dispatch notice:', pushEx);
       }
     }
   };

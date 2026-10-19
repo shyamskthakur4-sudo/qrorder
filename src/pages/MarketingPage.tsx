@@ -32,7 +32,12 @@ import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { useToast } from '../components/ui/Toast';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { showLockScreenNotification, requestNotificationPermission } from '../lib/pushNotifications';
+import {
+  showLockScreenNotification,
+  requestNotificationPermission,
+  subscribeToPushServiceAndSave,
+  dispatchWebPushViaEdge,
+} from '../lib/pushNotifications';
 
 export const MarketingPage: React.FC = () => {
   const { activeBusiness, campaigns, customers, sendSmartBroadcast } = useBusiness();
@@ -99,6 +104,16 @@ export const MarketingPage: React.FC = () => {
 
   useEffect(() => {
     fetchPushData();
+    if (
+      activeBusiness?.id &&
+      typeof window !== 'undefined' &&
+      'Notification' in window &&
+      Notification.permission === 'granted'
+    ) {
+      subscribeToPushServiceAndSave({ businessId: activeBusiness.id }).then(() => {
+        fetchPushData();
+      }).catch(() => {});
+    }
   }, [activeBusiness?.id]);
 
   const androidCount = activeSubscribers.filter((s) => s.platform === 'ANDROID').length;
@@ -151,8 +166,12 @@ export const MarketingPage: React.FC = () => {
           const perm = await requestNotificationPermission({
             businessName: activeBusiness.name,
             logoUrl: activeBusiness.logo_url,
+            businessId: activeBusiness.id,
           });
           setDevicePermission(perm);
+          if (perm === 'granted') {
+            await subscribeToPushServiceAndSave({ businessId: activeBusiness.id }).catch(() => {});
+          }
         } catch {}
       }
 
@@ -197,11 +216,32 @@ export const MarketingPage: React.FC = () => {
       perm = await requestNotificationPermission({
         businessName: activeBusiness.name,
         logoUrl: activeBusiness.logo_url,
+        businessId: activeBusiness.id,
       });
       setDevicePermission(perm);
     }
 
-    // Always trigger lock screen notification + in-app banner + chime + haptic vibration
+    if (perm === 'granted' && activeBusiness?.id) {
+      // Ensure subscription is synced in Supabase push_subscriptions
+      await subscribeToPushServiceAndSave({ businessId: activeBusiness.id }).catch(() => {});
+      fetchPushData();
+
+      // Trigger server-side Web Push through Edge Function to verify real delivery
+      await dispatchWebPushViaEdge({
+        businessId: activeBusiness.id,
+        notificationType: 'TEST',
+        notification: {
+          title: `${activeBusiness.name}: ${pushTitle}`,
+          body: pushMessage,
+          icon: activeBusiness.logo_url || '/favicon.svg',
+          tag: 'marketing_test',
+          url: window.location.href,
+          chimeType: 'ping',
+        },
+      }).catch(() => {});
+    }
+
+    // Always trigger local lock screen notification + chime + haptic vibration
     await showLockScreenNotification({
       title: `${activeBusiness.name}: ${pushTitle}`,
       body: pushMessage,
@@ -214,12 +254,12 @@ export const MarketingPage: React.FC = () => {
     if (perm === 'granted') {
       success(
         'Lock-Screen Push Delivered! 🔔',
-        'Check your device lock screen, notification bar & top screen banner.'
+        'Check your device lock screen and notification bar.'
       );
     } else {
       info(
-        'In-App Push Banner Displayed! 🔔',
-        'Native OS notifications are blocked in your browser. Unblock in address bar to also receive lock screen push when browser is closed.'
+        'Native Notifications Blocked',
+        'Native OS notifications are blocked in your browser. Unblock in address bar to receive lock screen push.'
       );
     }
   };

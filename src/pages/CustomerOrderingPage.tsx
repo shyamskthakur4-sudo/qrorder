@@ -40,6 +40,7 @@ import {
   dispatchWebPushViaEdge,
   getOrCreateDinerSessionId,
   subscribeToPushServiceAndSave,
+  requestNotificationPermission,
 } from '../lib/pushNotifications';
 
 interface CartItem {
@@ -367,6 +368,41 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
     placedOrder;
 
   const lastNotifiedStatusRef = useRef<OrderStatus | null>(null);
+  const hasRequestedPermOnInteractionRef = useRef(false);
+
+  // Auto-sync Web Push subscription if diner has already granted notification permissions
+  useEffect(() => {
+    if (
+      effectiveBusiness?.id &&
+      typeof window !== 'undefined' &&
+      'Notification' in window &&
+      Notification.permission === 'granted'
+    ) {
+      subscribeToPushServiceAndSave({
+        businessId: effectiveBusiness.id,
+        branchId: effectiveBranch.id,
+      }).catch(() => {});
+    }
+  }, [effectiveBusiness?.id, effectiveBranch?.id]);
+
+  // Request browser native notification permission on the diner's first click or touch interaction
+  const handleFirstUserInteraction = () => {
+    if (hasRequestedPermOnInteractionRef.current) return;
+    hasRequestedPermOnInteractionRef.current = true;
+    if (
+      effectiveBusiness?.id &&
+      typeof window !== 'undefined' &&
+      'Notification' in window &&
+      Notification.permission === 'default'
+    ) {
+      requestNotificationPermission({
+        businessId: effectiveBusiness.id,
+        branchId: effectiveBranch.id,
+        businessName: effectiveBusiness.name,
+        logoUrl: effectiveBusiness.logo_url,
+      }).catch(() => {});
+    }
+  };
 
   // Dedicated reactive engine: fires Swiggy/Zomato lock screen push whenever status transitions
   useEffect(() => {
@@ -692,6 +728,23 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
     e.preventDefault();
     if (cart.length === 0) return;
 
+    // Ensure native notification permission is requested during place-order click gesture
+    if (
+      effectiveBusiness?.id &&
+      typeof window !== 'undefined' &&
+      'Notification' in window &&
+      Notification.permission === 'default'
+    ) {
+      try {
+        await requestNotificationPermission({
+          businessId: effectiveBusiness.id,
+          branchId: effectiveBranch.id,
+          businessName: effectiveBusiness.name,
+          logoUrl: effectiveBusiness.logo_url,
+        });
+      } catch {}
+    }
+
     const orderItemsPayload: OrderItem[] = cart.map((ci) => ({
       id: generateUUID(),
       order_id: '',
@@ -731,6 +784,14 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
     // Mark current status as PLACED so subsequent transitions (PREPARING, READY, etc.) fire smoothly
     lastNotifiedStatusRef.current = 'PLACED';
 
+    // Link customer & order to push subscription in Supabase
+    subscribeToPushServiceAndSave({
+      businessId: effectiveBusiness.id,
+      branchId: effectiveBranch.id,
+      customerId: newOrder.customer_id || undefined,
+      orderId: newOrder.id,
+    }).catch(() => {});
+
     // Trigger Swiggy/Zomato Instant Lock Screen Push Notification with chime & haptics
     const placedNotifCfg = getOrderStatusNotificationConfig(
       'PLACED',
@@ -769,15 +830,6 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
       console.warn('Edge push dispatch note on place order:', err);
     });
 
-    // Link customer to push subscription in Supabase if customer_id exists
-    if (newOrder.customer_id) {
-      subscribeToPushServiceAndSave({
-        businessId: effectiveBusiness.id,
-        branchId: effectiveBranch.id,
-        customerId: newOrder.customer_id,
-      }).catch(() => {});
-    }
-
     if (custName.trim() && typeof window !== 'undefined') {
       localStorage.setItem('cafeos_cust_name', custName.trim());
     }
@@ -811,7 +863,10 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
   }
 
   return (
-    <div className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col ${isStandalone ? 'w-full' : 'max-w-md mx-auto border border-slate-800 rounded-[36px] shadow-2xl overflow-hidden my-4'}`}>
+    <div
+      onClick={handleFirstUserInteraction}
+      className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col ${isStandalone ? 'w-full' : 'max-w-md mx-auto border border-slate-800 rounded-[36px] shadow-2xl overflow-hidden my-4'}`}
+    >
       <div className={`w-full ${isStandalone ? 'max-w-lg mx-auto sm:border-x sm:border-slate-800/80 min-h-screen flex flex-col relative bg-slate-950 shadow-2xl' : 'flex flex-col relative'}`}>
         {/* Smartphone Notch / Status simulation banner (only if in preview inside admin) */}
         {!isStandalone && (

@@ -144,12 +144,18 @@ export const subscribeToPushServiceAndSave = async (params: {
   businessId: string;
   branchId?: string;
   customerId?: string;
+  orderId?: string;
 }): Promise<boolean> => {
   if (
     typeof window === 'undefined' ||
     !('serviceWorker' in navigator) ||
     !('PushManager' in window)
   ) {
+    return false;
+  }
+
+  // Only proceed if browser permission is already granted
+  if (typeof Notification !== 'undefined' && Notification.permission !== 'granted') {
     return false;
   }
 
@@ -190,6 +196,7 @@ export const subscribeToPushServiceAndSave = async (params: {
           business_id: params.businessId,
           branch_id: params.branchId || null,
           customer_id: params.customerId || null,
+          order_id: params.orderId || null,
           session_id: sessionId,
           endpoint,
           p256dh,
@@ -223,6 +230,7 @@ export const requestNotificationPermission = async (options?: {
   businessId?: string;
   branchId?: string;
   customerId?: string;
+  orderId?: string;
 }): Promise<NotificationPermission> => {
   if (typeof window === 'undefined' || !('Notification' in window)) {
     return 'denied';
@@ -263,6 +271,7 @@ export const requestNotificationPermission = async (options?: {
           businessId: options.businessId,
           branchId: options.branchId,
           customerId: options.customerId,
+          orderId: options.orderId,
         }).catch(() => {});
       } else {
         registerServiceWorker().catch(() => {});
