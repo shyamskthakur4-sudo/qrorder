@@ -81,10 +81,6 @@ Deno.serve(async (req: Request) => {
       orderId: order_id || notification.orderId,
       timestamp: Date.now(),
       vibrate: [250, 100, 250, 100, 250],
-      actions: [
-        { action: 'track', title: '📍 Track Live Prep' },
-        { action: 'dismiss', title: 'Dismiss' },
-      ],
     });
 
     let successCount = 0;

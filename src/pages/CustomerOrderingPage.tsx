@@ -35,12 +35,9 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { GoogleReviewModal, GoogleIcon } from '../components/reviews/GoogleReviewModal';
 import {
   registerServiceWorker,
-  requestNotificationPermission,
   showLockScreenNotification,
   getOrderStatusNotificationConfig,
   dispatchWebPushViaEdge,
-  isIosDevice,
-  isIosPwaInstalled,
   getOrCreateDinerSessionId,
   subscribeToPushServiceAndSave,
 } from '../lib/pushNotifications';
@@ -287,74 +284,10 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
   const effectiveCoupons: Coupon[] = cloudCoupons.length > 0 ? cloudCoupons : coupons;
 
   // Web Push & Lock Screen Notification State (Swiggy / Zomato Style)
-  const [notificationPerm, setNotificationPerm] = useState<NotificationPermission>(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      return Notification.permission;
-    }
-    return 'default';
-  });
-  const [showNotificationPrompt, setShowNotificationPrompt] = useState<boolean>(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      return Notification.permission === 'default';
-    }
-    return false;
-  });
-  const [isVipNotifModalOpen, setIsVipNotifModalOpen] = useState<boolean>(false);
-
-  // Proactive VIP Notification Permission Modal on first visit to a restaurant's QR menu
+  // Register service worker silently for background push without interrupting customer
   useEffect(() => {
     registerServiceWorker();
-
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      const currentPerm = Notification.permission;
-      setNotificationPerm(currentPerm);
-
-      const hasViewedOptIn = sessionStorage.getItem(`cafeos_optin_viewed_${effectiveBusiness.id}`);
-      if (currentPerm === 'default' && !isCloudLoading && !hasViewedOptIn) {
-        const timer = setTimeout(() => {
-          setIsVipNotifModalOpen(true);
-        }, 400);
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [isCloudLoading, effectiveBusiness.id]);
-
-  const handleRequestNotifications = async () => {
-    try {
-      if (typeof window !== 'undefined') {
-        sessionStorage.setItem(`cafeos_optin_viewed_${effectiveBusiness.id}`, 'true');
-      }
-
-      const perm = await requestNotificationPermission({
-        businessName: effectiveBusiness.name,
-        logoUrl: effectiveBusiness.logo_url,
-        businessId: effectiveBusiness.id,
-        branchId: effectiveBranch.id,
-      });
-
-      setNotificationPerm(perm);
-      setIsVipNotifModalOpen(false);
-      setShowNotificationPrompt(false);
-
-      if (perm === 'granted') {
-        success(
-          'Instant Alerts Activated! 🔔',
-          'You will receive live lock-screen updates when your food is cooking & ready to serve.'
-        );
-      } else if (perm === 'denied') {
-        info('Notifications Blocked', 'You can enable notifications anytime in your browser settings.');
-      }
-    } catch (e) {
-      console.warn('Notification permission error:', e);
-    }
-  };
-
-  const handleDismissNotificationOptIn = () => {
-    if (typeof window !== 'undefined') {
-      sessionStorage.setItem(`cafeos_optin_viewed_${effectiveBusiness.id}`, 'true');
-    }
-    setIsVipNotifModalOpen(false);
-  };
+  }, []);
 
   // Listen to live marketing broadcasts with Lock-Screen Push
   useEffect(() => {
@@ -759,17 +692,6 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
     e.preventDefault();
     if (cart.length === 0) return;
 
-    // Prompt user for notifications on this direct user gesture if permission not yet decided
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
-      try {
-        const perm = await requestNotificationPermission({
-          businessName: effectiveBusiness.name,
-          logoUrl: effectiveBusiness.logo_url,
-        });
-        setNotificationPerm(perm);
-      } catch {}
-    }
-
     const orderItemsPayload: OrderItem[] = cart.map((ci) => ({
       id: generateUUID(),
       order_id: '',
@@ -868,7 +790,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
 
     setPlacedOrderId(newOrder.id);
     setPlacedOrder(newOrder);
-    setIsTrackerOpen(true);
+    setIsTrackerOpen(false);
     setHasAutoPromptedReview(false);
     setCart([]);
     setIsCartOpen(false);
@@ -944,57 +866,8 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
                   Table {effectiveTable?.table_number || '01'}
                 </span>
               </div>
-              {notificationPerm === 'granted' ? (
-                <span className="px-2 py-0.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                  🔔 Push Alerts ON
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setIsVipNotifModalOpen(true)}
-                  className="px-2 py-0.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-all"
-                >
-                  <Bell className="w-2.5 h-2.5 text-amber-400" />
-                  Enable Push
-                </button>
-              )}
             </div>
           </div>
-
-        {/* Swiggy/Zomato VIP Notification Bar Opt-in */}
-        {showNotificationPrompt && (
-          <div className="mt-3 p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/20 via-orange-500/15 to-purple-500/20 border border-amber-500/40 backdrop-blur-md shadow-lg shadow-amber-500/10 animate-in fade-in duration-300">
-            <div className="flex items-start gap-3">
-              <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-300 shrink-0 text-base shadow-sm">
-                🔔
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <h4 className="text-xs font-bold text-slate-100">Live Order Tracking & VIP Deals</h4>
-                  <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-amber-500 text-slate-950">Swiggy Speed</span>
-                </div>
-                <p className="text-[11px] text-slate-300 mt-0.5 leading-snug">
-                  Get real-time updates when your food is ready & secret 20% off table codes directly in your notification bar!
-                </p>
-                <div className="mt-2.5 flex items-center gap-2">
-                  <button
-                    onClick={handleRequestNotifications}
-                    className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-amber-500/25 transition-all cursor-pointer"
-                  >
-                    <span>Turn On Notifications</span>
-                  </button>
-                  <button
-                    onClick={() => setShowNotificationPrompt(false)}
-                    className="px-2.5 py-1.5 rounded-xl text-slate-400 hover:text-slate-200 text-xs font-semibold cursor-pointer"
-                  >
-                    Later
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Promo strip */}
         <div className="mt-3 p-2.5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-500/20 to-yellow-500/10 border border-amber-500/30 flex items-center justify-between text-xs">
@@ -1511,32 +1384,6 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
             </div>
           </div>
 
-          {/* Instant Lock-Screen Push Option */}
-          <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
-                <Bell className="w-4 h-4" />
-              </div>
-              <div className="text-left">
-                <p className="font-bold text-slate-200">Instant Lock-Screen Alerts</p>
-                <p className="text-[11px] text-slate-400">Swiggy-style push notifications & vibration when food is cooking</p>
-              </div>
-            </div>
-            {notificationPerm === 'granted' ? (
-              <span className="px-2.5 py-1 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold shrink-0">
-                ✓ Active
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={handleRequestNotifications}
-                className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-slate-950 text-xs font-bold shadow-md cursor-pointer whitespace-nowrap shrink-0"
-              >
-                Enable
-              </button>
-            )}
-          </div>
-
           <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300">
             Total Payable: <strong className="font-['Outfit'] text-sm">{formatCurrency(finalTotal, effectiveBusiness.currency, effectiveBusiness.currency_symbol)}</strong>
           </div>
@@ -1750,112 +1597,6 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
             </div>
           </div>
         )}
-      </Modal>
-
-      {/* Swiggy/Zomato Instant Lock-Screen Notification Opt-In Modal */}
-      <Modal
-        isOpen={isVipNotifModalOpen}
-        onClose={handleDismissNotificationOptIn}
-        maxWidth="sm"
-        showCloseButton={true}
-      >
-        <div className="space-y-4">
-          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-amber-500/25 via-orange-500/15 to-rose-500/20 border-2 border-amber-500/40 p-5 text-center shadow-inner">
-            <div className="relative w-16 h-16 mx-auto mb-3 flex items-center justify-center">
-              <span className="absolute inset-0 rounded-2xl bg-amber-400/20 animate-ping" />
-              <span className="absolute inset-1 rounded-2xl bg-amber-500/30 animate-pulse" />
-              <div className="relative w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-500 text-slate-950 flex items-center justify-center text-3xl shadow-lg shadow-amber-500/40">
-                🔔
-              </div>
-            </div>
-
-            <div className="flex items-center justify-center gap-1.5 mb-1.5">
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/30 flex items-center gap-1">
-                <Flame className="w-3 h-3 fill-current" />
-                <span>Swiggy & Zomato Style Updates</span>
-              </span>
-            </div>
-
-            <h3 className="text-base font-extrabold text-slate-100 font-['Outfit']">
-              Stay Updated with {effectiveBusiness.name}
-            </h3>
-            <p className="text-xs text-slate-300 mt-1 max-w-xs mx-auto leading-relaxed">
-              Enable lock-screen notifications to receive live updates, exclusive table deals, and special events directly on your phone.
-            </p>
-
-            <div className="mt-3.5 space-y-2 text-left">
-              <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-200">
-                <span className="text-lg shrink-0">🍳</span>
-                <div className="min-w-0">
-                  <strong className="text-amber-300 block text-[12px]">Live Order Tracking</strong>
-                  <span className="text-[10px] text-slate-400">Lock-screen alerts when chef starts cooking & when food is hot and ready at Table {effectiveTable?.table_number || '01'}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-200">
-                <span className="text-lg shrink-0">🎁</span>
-                <div className="min-w-0">
-                  <strong className="text-emerald-300 block text-[12px]">Exclusive Table Offers</strong>
-                  <span className="text-[10px] text-slate-400">Secret flash discounts, happy hour specials, and member perks</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-200">
-                <span className="text-lg shrink-0">📢</span>
-                <div className="min-w-0">
-                  <strong className="text-purple-300 block text-[12px]">Event Announcements</strong>
-                  <span className="text-[10px] text-slate-400">Chef seasonal tastings, live music nights, and weekend specials</span>
-                </div>
-              </div>
-            </div>
-
-            {/* iOS installation guidance when viewing in mobile Safari */}
-            {isIosDevice() && !isIosPwaInstalled() && (
-              <div className="mt-3 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-left text-[11px] text-amber-200 space-y-1">
-                <p className="font-bold flex items-center gap-1">
-                  <span>📱 iOS Lock-Screen Requirement:</span>
-                </p>
-                <p className="text-slate-300 text-[10px] leading-relaxed">
-                  Apple Safari requires adding this app to your Home Screen for lock-screen push. Tap <strong>Share (⎋)</strong> ➔ <strong>"Add to Home Screen"</strong>. (Android activates directly below!)
-                </p>
-              </div>
-            )}
-          </div>
-
-          {notificationPerm === 'denied' ? (
-            <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-left space-y-2">
-              <p className="text-xs font-bold text-rose-300 flex items-center gap-1.5">
-                <span>🔒 Notifications are blocked in your browser</span>
-              </p>
-              <p className="text-[11px] text-slate-300 leading-relaxed">
-                To receive instant lock-screen alerts, tap the <strong>lock / site settings icon (🔒)</strong> in your browser address bar and change Notifications to <strong>Allow</strong>.
-              </p>
-              <Button
-                variant="secondary"
-                className="w-full text-xs"
-                onClick={handleDismissNotificationOptIn}
-              >
-                Continue to Menu
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <Button
-                variant="primary"
-                className="w-full py-3.5 text-sm font-extrabold bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-600 text-slate-950 shadow-xl shadow-amber-500/30 flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] transition-all"
-                onClick={handleRequestNotifications}
-              >
-                <Bell className="w-4 h-4 fill-current" />
-                <span>Enable Notifications</span>
-              </Button>
-              <button
-                type="button"
-                onClick={handleDismissNotificationOptIn}
-                className="w-full py-2 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors cursor-pointer text-center"
-              >
-                Maybe Later, Continue to Menu
-              </button>
-            </div>
-          )}
-        </div>
       </Modal>
 
       {/* Google Review Modal Popup */}

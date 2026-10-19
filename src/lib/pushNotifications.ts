@@ -267,14 +267,6 @@ export const requestNotificationPermission = async (options?: {
       } else {
         registerServiceWorker().catch(() => {});
       }
-
-      // 4. Send immediate welcome lock-screen confirmation
-      await showLockScreenNotification({
-        title: `✨ Live Food Tracking Enabled!`,
-        body: `You'll receive live lock-screen updates when your order is cooking & ready to serve!`,
-        icon: options?.logoUrl || '/favicon.svg',
-        tag: 'welcome_notification',
-      });
     }
 
     return permission;
@@ -314,33 +306,12 @@ export const showLockScreenNotification = async ({
   triggerHaptic(vibrate);
   playNotificationChime(chimeType);
 
-  // 2. Dispatch in-app dynamic floating banner
-  if (typeof window !== 'undefined') {
-    try {
-      window.dispatchEvent(
-        new CustomEvent('cafeos:push_notification', {
-          detail: {
-            title,
-            body,
-            icon,
-            badge,
-            tag,
-            url,
-            orderId,
-            chimeType,
-            timestamp: Date.now(),
-          },
-        })
-      );
-    } catch {}
-  }
-
   if (typeof window === 'undefined' || !('Notification' in window)) {
-    return true; // in-app banner handled
+    return true;
   }
 
   if (Notification.permission !== 'granted') {
-    return true; // in-app banner handled
+    return true;
   }
 
   const persistentOptions: NotificationOptions & Record<string, any> = {
@@ -356,10 +327,6 @@ export const showLockScreenNotification = async ({
       orderId,
       timestamp: Date.now(),
     },
-    actions: [
-      { action: 'track', title: '📍 Live Order Tracker' },
-      { action: 'dismiss', title: 'Dismiss' },
-    ],
   };
 
   const standardOptions: NotificationOptions & Record<string, any> = {

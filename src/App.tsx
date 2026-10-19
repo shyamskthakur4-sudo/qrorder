@@ -5,7 +5,6 @@ import { ToastProvider } from './components/ui/Toast';
 import { DashboardLayout } from './components/layout/DashboardLayout';
 import { NavigationPage } from './components/layout/Sidebar';
 import { AuthModal } from './components/auth/AuthModal';
-import { SwiggyPushBanner } from './components/ui/SwiggyPushBanner';
 import { Button } from './components/ui/Button';
 import { Sparkles, Lock, Loader2, ShieldAlert } from 'lucide-react';
 
@@ -290,6 +289,7 @@ const MainApp: React.FC = () => {
           {currentPage === 'inventory' && <InventoryPage />}
           {currentPage === 'staff' && <StaffPage />}
           {currentPage === 'analytics' && <AnalyticsPage />}
+          {currentPage === 'settings' && <SettingsPage />}
           {currentPage === 'super-admin' && (
             user?.is_superadmin || role === 'SUPER_ADMIN' ? (
               <SuperAdminPage />
@@ -335,7 +335,6 @@ export default function App() {
     <ToastProvider>
       <AuthProvider>
         <BusinessProvider>
-          <SwiggyPushBanner />
           <MainApp />
         </BusinessProvider>
       </AuthProvider>

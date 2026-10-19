@@ -35,10 +35,6 @@ self.addEventListener('push', (event) => {
       orderId: data.orderId,
       timestamp: Date.now(),
     },
-    actions: [
-      { action: 'track', title: '📍 Track Live Prep' },
-      { action: 'dismiss', title: 'Dismiss' },
-    ],
   };
 
   event.waitUntil(
