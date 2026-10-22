@@ -1177,45 +1177,10 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     playKitchenAlert();
 
-    // Sync customer & order to Supabase in background
+    // Securely persist order to Supabase via server-side submit_customer_order RPC
     if (isSupabaseConfigured) {
       try {
-        // 1. Upsert customer record to Supabase CRM
-        if (preparedCustomer) {
-          try {
-            const { data: savedCust, error: custErr } = await supabase
-              .from('customers')
-              .upsert(
-                {
-                  id: preparedCustomer.id,
-                  business_id: preparedCustomer.business_id,
-                  name: preparedCustomer.name,
-                  phone: preparedCustomer.phone,
-                  total_spending: preparedCustomer.total_spending,
-                  visit_count: preparedCustomer.visit_count,
-                  last_visit: preparedCustomer.last_visit,
-                  loyalty_points: preparedCustomer.loyalty_points,
-                  segment: preparedCustomer.segment,
-                  notes: preparedCustomer.notes,
-                  updated_at: preparedCustomer.updated_at,
-                },
-                { onConflict: 'business_id,phone' }
-              )
-              .select()
-              .maybeSingle();
-
-            if (custErr) {
-              console.error('Supabase customer CRM upsert error:', custErr);
-            } else if (savedCust) {
-              targetCustomerId = savedCust.id;
-              newOrder.customer_id = targetCustomerId || undefined;
-            }
-          } catch (cEx) {
-            console.warn('Customer upsert notice:', cEx);
-          }
-        }
-
-        // 2. Validate linked table ID
+        // Validate linked table ID
         let dbTableId: string | null = null;
         if (orderData.table_id && isValidUUID(orderData.table_id)) {
           const tableExists = tables.some((t) => t.id === orderData.table_id);
@@ -1224,78 +1189,84 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           }
         }
 
-        // 3. Insert order into Supabase orders table
-        const { error: ordErr } = await supabase
-          .from('orders')
-          .insert({
-            id: newOrder.id,
-            business_id: newOrder.business_id,
-            branch_id: newOrder.branch_id,
-            table_id: dbTableId,
-            customer_id: targetCustomerId && isValidUUID(targetCustomerId) ? targetCustomerId : null,
-            order_number: newOrder.order_number,
-            status: newOrder.status,
-            customer_name: newOrder.customer_name,
-            customer_phone: newOrder.customer_phone || null,
-            subtotal: newOrder.subtotal,
-            tax_amount: newOrder.tax_amount,
-            discount_amount: newOrder.discount_amount,
-            service_charge: newOrder.service_charge,
-            tip_amount: newOrder.tip_amount,
-            total_amount: newOrder.total_amount,
-            payment_status: newOrder.payment_status,
-            payment_method: newOrder.payment_method,
-            notes: newOrder.notes || null,
-          });
+        const rpcPayload = {
+          business_id: targetBizId,
+          branch_id: targetBranchId,
+          table_id: dbTableId,
+          customer_name: orderData.customer_name || 'Guest Diner',
+          customer_phone: orderData.customer_phone || null,
+          coupon_code: (orderData as any).coupon_code || null,
+          payment_method: orderData.payment_method || 'UPI',
+          payment_status: orderData.payment_status || 'PENDING',
+          notes: orderData.notes || null,
+          tip_amount: orderData.tip_amount || 0,
+          items: (orderData.items || []).map((it) => ({
+            menu_item_id: it.menu_item_id,
+            variant_id: (it as any).variant_id || null,
+            variant_name: it.variant_name || null,
+            quantity: it.quantity,
+            notes: it.notes || null,
+            addons: (it.addons || []).map((a) => ({
+              id: (a as any).id || null,
+              addon_name: a.addon_name,
+              price: a.price,
+            })),
+          })),
+        };
 
-        if (ordErr) {
-          console.error('Supabase order insert error:', ordErr);
-        } else if (newOrder.items && newOrder.items.length > 0) {
-          const itemsToInsert = newOrder.items.map((it) => {
-            const isKnownMenu = it.menu_item_id && isValidUUID(it.menu_item_id) && menuItems.some((m) => m.id === it.menu_item_id);
-            return {
-              id: generateUUID(),
-              order_id: newOrder.id,
-              menu_item_id: isKnownMenu ? it.menu_item_id : null,
-              item_name: it.item_name,
-              variant_name: it.variant_name || null,
-              unit_price: it.unit_price,
-              quantity: it.quantity,
-              total_price: it.total_price,
-              notes: it.notes || null,
-              status: 'ORDERED',
-            };
-          });
-          const { error: itemInsertErr } = await supabase.from('order_items').insert(itemsToInsert);
-          if (itemInsertErr) console.error('Order items insert error:', itemInsertErr);
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc('submit_customer_order', {
+          p_order_payload: rpcPayload,
+        });
+
+        if (rpcErr) {
+          console.error('Supabase submit_customer_order RPC error:', rpcErr);
+          throw rpcErr;
         }
 
-        // 4. Dual-Layer Instant Realtime Broadcast to notify all cafe owner/staff/KDS screens
+        if (rpcRes) {
+          newOrder.id = rpcRes.order_id;
+          newOrder.order_number = rpcRes.order_number;
+          newOrder.order_token = rpcRes.order_token;
+          newOrder.subtotal = Number(rpcRes.subtotal);
+          newOrder.tax_amount = Number(rpcRes.tax_amount);
+          newOrder.discount_amount = Number(rpcRes.discount_amount);
+          newOrder.service_charge = Number(rpcRes.service_charge);
+          newOrder.total_amount = Number(rpcRes.total_amount);
+          newOrder.customer_id = rpcRes.customer_id || undefined;
+          newOrder.status = rpcRes.status || 'PLACED';
+
+          // Update local state orders with server-computed order
+          setOrders((prev) => [newOrder, ...prev.filter((o) => o.id !== newOrder.id)]);
+        }
+
+        // Dual-Layer Instant Realtime Broadcast to notify all cafe owner/staff/KDS screens
         try {
           const realtimeChannel = supabase.channel(`cafeos_realtime_${targetBizId}`);
           realtimeChannel.subscribe((chStatus) => {
             if (chStatus === 'SUBSCRIBED') {
-              realtimeChannel.send({
-                type: 'broadcast',
-                event: 'new_order_placed',
-                payload: { order: newOrder },
-              }).then(() => {
-                if (preparedCustomer) {
-                  realtimeChannel.send({
-                    type: 'broadcast',
-                    event: 'customer_updated',
-                    payload: { customer: preparedCustomer },
-                  });
-                }
-                setTimeout(() => supabase.removeChannel(realtimeChannel), 2000);
-              });
+              realtimeChannel
+                .send({
+                  type: 'broadcast',
+                  event: 'new_order_placed',
+                  payload: { order: newOrder },
+                })
+                .then(() => {
+                  if (preparedCustomer) {
+                    realtimeChannel.send({
+                      type: 'broadcast',
+                      event: 'customer_updated',
+                      payload: { customer: preparedCustomer },
+                    });
+                  }
+                  setTimeout(() => supabase.removeChannel(realtimeChannel), 2000);
+                });
             }
           });
         } catch (bcErr) {
           console.warn('Realtime order broadcast notice:', bcErr);
         }
       } catch (e) {
-        console.error('Supabase order insert exception:', e);
+        console.error('Supabase submit_customer_order exception:', e);
       }
     }
 

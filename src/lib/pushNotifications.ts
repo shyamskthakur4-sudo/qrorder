@@ -397,6 +397,7 @@ export const dispatchWebPushViaEdge = async (params: {
   customerId?: string;
   sessionId?: string;
   orderId?: string;
+  orderToken?: string;
   campaignId?: string;
   notificationType?: 'ORDER_STATUS' | 'OFFER' | 'ANNOUNCEMENT' | 'TEST';
   notification: LockScreenNotificationOptions;
@@ -408,22 +409,37 @@ export const dispatchWebPushViaEdge = async (params: {
   cleaned_expired_count?: number;
 }> => {
   try {
-    const baseUrl =
-      import.meta.env.VITE_SUPABASE_URL || 'https://mqwhqptxdyhphgosodrb.supabase.co';
+    const baseUrl = import.meta.env.VITE_SUPABASE_URL;
+    if (!baseUrl) {
+      console.warn('VITE_SUPABASE_URL is not set. Web Push cannot be dispatched.');
+      return { success: false };
+    }
     const edgeUrl = `${baseUrl}/functions/v1/send-push`;
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      apikey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
+    };
+
+    if (isSupabaseConfigured) {
+      try {
+        const { data: sessData } = await supabase.auth.getSession();
+        if (sessData?.session?.access_token) {
+          headers['Authorization'] = `Bearer ${sessData.session.access_token}`;
+        }
+      } catch {}
+    }
 
     const res = await fetch(edgeUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
-      },
+      headers,
       body: JSON.stringify({
         business_id: params.businessId,
         branch_id: params.branchId,
         customer_id: params.customerId,
         session_id: params.sessionId,
         order_id: params.orderId,
+        order_token: params.orderToken,
         campaign_id: params.campaignId,
         notification_type: params.notificationType || 'ORDER_STATUS',
         notification: params.notification,

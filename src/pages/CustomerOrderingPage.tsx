@@ -357,6 +357,12 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
     }
     return null;
   });
+  const [placedOrderToken, setPlacedOrderToken] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('cafeos_active_order_token') || null;
+    }
+    return null;
+  });
   const [placedOrder, setPlacedOrder] = useState<Order | null>(null);
   const [isTrackerOpen, setIsTrackerOpen] = useState<boolean>(false);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState<boolean>(false);
@@ -445,6 +451,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
         customerId: currentPlacedOrder.customer_id || undefined,
         sessionId: getOrCreateDinerSessionId(),
         orderId: currentPlacedOrder.id,
+        orderToken: currentPlacedOrder.order_token || placedOrderToken || undefined,
         notificationType: 'ORDER_STATUS',
         notification: {
           title: cfg.title,
@@ -478,14 +485,19 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
   useEffect(() => {
     if (!isSupabaseConfigured || !placedOrderId) return;
 
-    supabase
-      .from('orders')
-      .select('*, items:order_items(*)')
-      .eq('id', placedOrderId)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data) setPlacedOrder(data);
-      });
+    // Securely retrieve diner's order using track_customer_order RPC with cryptographic token
+    if (placedOrderToken) {
+      supabase
+        .rpc('track_customer_order', {
+          p_order_id: placedOrderId,
+          p_order_token: placedOrderToken,
+        })
+        .then(({ data, error }) => {
+          if (data && !error) {
+            setPlacedOrder(data as Order);
+          }
+        });
+    }
 
     const channel = supabase
       .channel(`cust_order_${placedOrderId}`)
@@ -509,7 +521,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [placedOrderId]);
+  }, [placedOrderId, placedOrderToken]);
 
   // Real-time synchronization for customer QR menu items and categories
   useEffect(() => {
@@ -771,6 +783,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
       table_id: effectiveTable?.id,
       customer_name: custName,
       customer_phone: custPhone,
+      coupon_code: appliedCoupon?.code || undefined,
       subtotal: cartSubtotal,
       tax_amount: gstAmount,
       discount_amount: discountAmount,
@@ -779,7 +792,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
       payment_status: paymentMethod === 'CASH' ? 'PENDING' : 'PAID',
       items: orderItemsPayload,
       notes: `Ordered via Customer QR (Table: ${effectiveTable?.table_number || '01'})`,
-    });
+    } as any);
 
     // Mark current status as PLACED so subsequent transitions (PREPARING, READY, etc.) fire smoothly
     lastNotifiedStatusRef.current = 'PLACED';
@@ -816,6 +829,7 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
       customerId: newOrder.customer_id || undefined,
       sessionId: getOrCreateDinerSessionId(),
       orderId: newOrder.id,
+      orderToken: newOrder.order_token,
       notificationType: 'ORDER_STATUS',
       notification: {
         title: placedNotifCfg.title,
@@ -838,6 +852,10 @@ export const CustomerOrderingPage: React.FC<CustomerOrderingPageProps> = ({
     }
     if (typeof window !== 'undefined') {
       localStorage.setItem('cafeos_active_order_id', newOrder.id);
+      if (newOrder.order_token) {
+        localStorage.setItem('cafeos_active_order_token', newOrder.order_token);
+        setPlacedOrderToken(newOrder.order_token);
+      }
     }
 
     setPlacedOrderId(newOrder.id);

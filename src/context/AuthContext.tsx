@@ -40,9 +40,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const parsed = JSON.parse(saved);
         if (parsed && !parsed.email?.includes('roastbrew.com')) {
-          if (parsed.is_superadmin && parsed.email !== 'shyamskthakur@gmail.com' && parsed.email !== 'admin@cafeos.app') {
-            parsed.is_superadmin = false;
-          }
           return parsed;
         }
       } catch {}
@@ -65,18 +62,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [role, setRole] = useState<StaffRole>(() => {
     const savedRole = localStorage.getItem('cafeos_role') as StaffRole;
-    if (savedRole === 'SUPER_ADMIN') {
-      const savedUserStr = localStorage.getItem('cafeos_user');
-      if (savedUserStr) {
-        try {
-          const u = JSON.parse(savedUserStr);
-          if (u?.is_superadmin || u?.email === 'shyamskthakur@gmail.com' || u?.email === 'admin@cafeos.app') {
-            return 'SUPER_ADMIN';
-          }
-        } catch {}
-      }
-      return 'OWNER';
-    }
     return savedRole || 'OWNER';
   });
 
@@ -160,7 +145,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           window.dispatchEvent(new Event('popstate'));
         }
 
-        let isSuperAdmin = session.user.email === 'admin@cafeos.app' || session.user.email === 'shyamskthakur@gmail.com';
+        let isSuperAdmin = false;
         try {
           const { data: prof } = await supabase
             .from('profiles')
@@ -219,7 +204,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           window.dispatchEvent(new Event('popstate'));
         }
 
-        let isSuperAdmin = session.user.email === 'admin@cafeos.app' || session.user.email === 'shyamskthakur@gmail.com';
+        let isSuperAdmin = false;
         try {
           const { data: prof } = await supabase
             .from('profiles')
@@ -278,7 +263,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
         if (error) throw error;
         if (data.user) {
-          let isSuperAdmin = cleanEmail === 'admin@cafeos.app' || cleanEmail === 'shyamskthakur@gmail.com';
+          let isSuperAdmin = false;
           try {
             const { data: prof } = await supabase
               .from('profiles')
@@ -323,31 +308,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           return true;
         }
+        return false;
       }
 
-      if (cleanEmail === 'admin@cafeos.app') {
-        setRole('SUPER_ADMIN');
-        setUser({
-          id: 'super-admin-01',
-          email: 'admin@cafeos.app',
-          full_name: 'Platform Super Admin',
-          is_superadmin: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
-      } else {
-        // Fallback generic owner login
-        setRole('OWNER');
-        setUser({
-          id: 'user-' + Date.now(),
-          email: cleanEmail,
-          full_name: cleanEmail.split('@')[0],
-          is_superadmin: false,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
-      }
-      return true;
+      throw new Error('Supabase is not configured for authentication.');
     } finally {
       setIsLoading(false);
     }
@@ -644,29 +608,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const staffPinLogin = async (pin: string): Promise<boolean> => {
+  const staffPinLogin = async (pin: string, branchId?: string): Promise<boolean> => {
     setIsLoading(true);
     try {
       if (isSupabaseConfigured) {
-        const { data } = await supabase
-          .from('staff')
-          .select('*')
-          .eq('pin_code', pin)
-          .eq('is_active', true)
-          .limit(1)
-          .maybeSingle();
+        let targetBizId = localStorage.getItem('cafeos_active_biz_id');
+        if (!targetBizId) {
+          const bizListStr = localStorage.getItem('cafeos_businesses');
+          if (bizListStr) {
+            try {
+              const parsed = JSON.parse(bizListStr);
+              if (Array.isArray(parsed) && parsed[0]?.id) {
+                targetBizId = parsed[0].id;
+              }
+            } catch {}
+          }
+        }
+
+        if (!targetBizId) {
+          console.error('No active business found for staff PIN authentication');
+          return false;
+        }
+
+        const { data, error } = await supabase.rpc('staff_pin_login', {
+          p_business_id: targetBizId,
+          p_pin: pin.trim(),
+        });
+
+        if (error) {
+          console.error('staff_pin_login RPC error:', error);
+          return false;
+        }
 
         if (data) {
-          setStaff(data);
-          setRole(data.role);
+          const staffRec: Staff = data;
+          setStaff(staffRec);
+          setRole(staffRec.role);
           setUser({
-            id: data.user_id || `staff-${data.id}`,
-            email: data.email,
-            full_name: data.full_name,
-            phone: data.phone,
+            id: staffRec.user_id || `staff-${staffRec.id}`,
+            email: staffRec.email,
+            full_name: staffRec.full_name,
+            phone: staffRec.phone,
             is_superadmin: false,
-            created_at: data.created_at,
-            updated_at: data.updated_at,
+            created_at: staffRec.created_at,
+            updated_at: staffRec.updated_at,
           });
           return true;
         }
@@ -703,27 +688,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const switchRolePreview = (newRole: StaffRole) => {
     // Strictly prevent non-superadmins from escalating themselves to SUPER_ADMIN
-    if (
-      newRole === 'SUPER_ADMIN' &&
-      !user?.is_superadmin &&
-      user?.email !== 'admin@cafeos.app' &&
-      user?.email !== 'shyamskthakur@gmail.com'
-    ) {
+    if (newRole === 'SUPER_ADMIN' && !user?.is_superadmin) {
       console.warn('Unauthorized attempt to switch to SUPER_ADMIN role blocked.');
       return;
     }
 
-    setRole(newRole);
-    if (newRole === 'SUPER_ADMIN') {
-      setUser((prev) => ({
-        id: prev?.id || 'super-admin-01',
-        email: prev?.email || 'admin@cafeos.app',
-        full_name: prev?.full_name || 'Platform Super Admin',
-        is_superadmin: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }));
+    // Only genuine superadmins or owners can switch preview roles
+    if (!user?.is_superadmin && staff?.role !== 'OWNER' && role !== 'OWNER') {
+      console.warn('Role preview is restricted to owners and administrators.');
+      return;
     }
+
+    setRole(newRole);
   };
 
   const hasPermission = (allowedRoles: StaffRole[]): boolean => {

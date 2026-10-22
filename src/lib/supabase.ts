@@ -1,32 +1,34 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl =
-  import.meta.env.VITE_SUPABASE_URL || 'https://mqwhqptxdyhphgosodrb.supabase.co';
-const supabaseAnonKey =
-  import.meta.env.VITE_SUPABASE_ANON_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1xd2hxcHR4ZHlocGhnb3NvZHJiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyNTg2NzIsImV4cCI6MjEwMTgzNDY3Mn0.wuCWOrlwYaG1xM_byX1D6pOb420rcNQbLrTBmJ0rudU';
+const rawSupabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const rawSupabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const isSupabaseConfigured = Boolean(
-  supabaseUrl &&
-  supabaseAnonKey &&
-  supabaseUrl !== 'https://your-project.supabase.co' &&
-  !supabaseUrl.includes('placeholder')
+  rawSupabaseUrl &&
+  rawSupabaseAnonKey &&
+  rawSupabaseUrl !== 'https://your-project.supabase.co' &&
+  !rawSupabaseUrl.includes('placeholder')
 );
 
-// Fallback dummy URL and Key so createClient doesn't crash if env vars are empty during initial setup
-export const supabase = createClient(
-  isSupabaseConfigured ? supabaseUrl : 'https://placeholder.supabase.co',
-  isSupabaseConfigured ? supabaseAnonKey : 'placeholder-anon-key',
-  {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
+// Fallback dummy URL and Key so createClient doesn't throw if env vars are missing during setup/testing
+const supabaseUrl = isSupabaseConfigured ? rawSupabaseUrl : 'https://placeholder.supabase.co';
+const supabaseAnonKey = isSupabaseConfigured ? rawSupabaseAnonKey : 'placeholder-anon-key';
+
+if (!isSupabaseConfigured && typeof window !== 'undefined') {
+  console.warn(
+    '[CafeOS Security] VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY is missing from environment. Supabase cloud integration is disabled.'
+  );
+}
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  },
+  realtime: {
+    params: {
+      eventsPerSecond: 10,
     },
-    realtime: {
-      params: {
-        eventsPerSecond: 10,
-      },
-    },
-  }
-);
+  },
+});

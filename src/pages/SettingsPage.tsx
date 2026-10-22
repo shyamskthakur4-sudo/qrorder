@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Building2,
   Store,
@@ -44,43 +44,75 @@ export const SettingsPage: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Business Profile Form
-  const [bizName, setBizName] = useState(activeBusiness.name);
-  const [bizEmail, setBizEmail] = useState(activeBusiness.email);
-  const [bizPhone, setBizPhone] = useState(activeBusiness.phone || '');
-  const [currency, setCurrency] = useState(activeBusiness.currency);
-  const [bizLogo, setBizLogo] = useState(activeBusiness.logo_url || '');
+  const [bizName, setBizName] = useState(() => activeBusiness?.name || '');
+  const [bizEmail, setBizEmail] = useState(() => activeBusiness?.email || '');
+  const [bizPhone, setBizPhone] = useState(() => activeBusiness?.phone || '');
+  const [currency, setCurrency] = useState(() => activeBusiness?.currency || 'INR');
+  const [bizLogo, setBizLogo] = useState(() => activeBusiness?.logo_url || '');
 
   // Branch Settings Form
-  const [branchName, setBranchName] = useState(activeBranch.name);
-  const [branchAddress, setBranchAddress] = useState(activeBranch.address || '');
-  const [branchCity, setBranchCity] = useState(activeBranch.city || '');
-  const [branchGst, setBranchGst] = useState(activeBranch.gst_number || '');
-  const [taxRate, setTaxRate] = useState(activeBranch.tax_rate_percent.toString());
-  const [serviceCharge, setServiceCharge] = useState(activeBranch.service_charge_percent.toString());
-  const [openingTime, setOpeningTime] = useState(activeBranch.opening_time || '09:00');
-  const [closingTime, setClosingTime] = useState(activeBranch.closing_time || '23:00');
+  const [branchName, setBranchName] = useState(() => activeBranch?.name || '');
+  const [branchAddress, setBranchAddress] = useState(() => activeBranch?.address || '');
+  const [branchCity, setBranchCity] = useState(() => activeBranch?.city || '');
+  const [branchGst, setBranchGst] = useState(() => activeBranch?.gst_number || '');
+  const [taxRate, setTaxRate] = useState(() => (activeBranch?.tax_rate_percent ?? 5.0).toString());
+  const [serviceCharge, setServiceCharge] = useState(() => (activeBranch?.service_charge_percent ?? 0.0).toString());
+  const [openingTime, setOpeningTime] = useState(() => activeBranch?.opening_time || '09:00');
+  const [closingTime, setClosingTime] = useState(() => activeBranch?.closing_time || '23:00');
 
   // Google Review & Reputation Form
   const [googleReviewUrl, setGoogleReviewUrl] = useState(
-    activeBusiness.google_review_url || activeBranch.google_review_url || ''
+    () => activeBusiness?.google_review_url || activeBranch?.google_review_url || ''
   );
   const [googlePlaceId, setGooglePlaceId] = useState(
-    activeBusiness.google_place_id || activeBranch.google_place_id || ''
+    () => activeBusiness?.google_place_id || activeBranch?.google_place_id || ''
   );
   const [enableReviewPrompt, setEnableReviewPrompt] = useState(
-    activeBusiness.enable_google_review_prompt !== false
+    () => activeBusiness?.enable_google_review_prompt !== false
   );
   const [minRatingForGoogle, setMinRatingForGoogle] = useState(
-    (activeBusiness.min_rating_for_google ?? 4).toString()
+    () => (activeBusiness?.min_rating_for_google ?? 4).toString()
   );
   const [reviewRewardText, setReviewRewardText] = useState(
-    activeBusiness.review_reward_text ||
+    () =>
+      activeBusiness?.review_reward_text ||
       'Show your Google review to our staff or use code REVIEW10 for 10% off your next visit!'
   );
   const [reviewCouponCode, setReviewCouponCode] = useState(
-    activeBusiness.review_coupon_code || 'REVIEW10'
+    () => activeBusiness?.review_coupon_code || 'REVIEW10'
   );
   const [isPreviewReviewModalOpen, setIsPreviewReviewModalOpen] = useState(false);
+
+  // Sync state if activeBusiness loads or changes asynchronously
+  useEffect(() => {
+    if (activeBusiness) {
+      setBizName(activeBusiness.name || '');
+      setBizEmail(activeBusiness.email || '');
+      setBizPhone(activeBusiness.phone || '');
+      setCurrency(activeBusiness.currency || 'INR');
+      setBizLogo(activeBusiness.logo_url || '');
+      setGoogleReviewUrl(activeBusiness.google_review_url || '');
+      setGooglePlaceId(activeBusiness.google_place_id || '');
+      setEnableReviewPrompt(activeBusiness.enable_google_review_prompt !== false);
+      setMinRatingForGoogle((activeBusiness.min_rating_for_google ?? 4).toString());
+      if (activeBusiness.review_reward_text) setReviewRewardText(activeBusiness.review_reward_text);
+      if (activeBusiness.review_coupon_code) setReviewCouponCode(activeBusiness.review_coupon_code);
+    }
+  }, [activeBusiness]);
+
+  // Sync state if activeBranch loads or changes asynchronously
+  useEffect(() => {
+    if (activeBranch) {
+      setBranchName(activeBranch.name || '');
+      setBranchAddress(activeBranch.address || '');
+      setBranchCity(activeBranch.city || '');
+      setBranchGst(activeBranch.gst_number || '');
+      setTaxRate((activeBranch.tax_rate_percent ?? 5.0).toString());
+      setServiceCharge((activeBranch.service_charge_percent ?? 0.0).toString());
+      setOpeningTime(activeBranch.opening_time || '09:00');
+      setClosingTime(activeBranch.closing_time || '23:00');
+    }
+  }, [activeBranch]);
 
   const handleGenerateUrlFromPlaceId = () => {
     if (!googlePlaceId.trim()) {

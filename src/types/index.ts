@@ -227,6 +227,7 @@ export interface Order {
   review_requested_at?: string;
   created_at: string;
   updated_at: string;
+  order_token?: string;
   table?: RestaurantTable;
   items?: OrderItem[];
 }

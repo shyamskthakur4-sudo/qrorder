@@ -8,7 +8,9 @@ const VAPID_PRIVATE_KEY =
   Deno.env.get('VAPID_PRIVATE_KEY') || 'zx0Xe3Z44TlPC5gV54cLDUVNXTDW40XTcCQVUzJn-nM';
 const VAPID_SUBJECT = Deno.env.get('VAPID_SUBJECT') || 'mailto:support@cafeos.app';
 
-webPush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+  webPush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+}
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_SERVICE_ROLE_KEY =
@@ -32,14 +34,22 @@ Deno.serve(async (req: Request) => {
   };
 
   try {
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      return new Response(
+        JSON.stringify({ error: 'Supabase service configuration missing on server' }),
+        { status: 500, headers: corsHeaders }
+      );
+    }
+
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const body = await req.json();
-    const {
+    let {
       business_id,
       branch_id,
       customer_id,
       session_id,
       order_id,
+      order_token,
       campaign_id,
       notification_type = 'ORDER_STATUS',
       notification,
@@ -50,6 +60,101 @@ Deno.serve(async (req: Request) => {
         JSON.stringify({ error: 'Missing business_id or notification content' }),
         { status: 400, headers: corsHeaders }
       );
+    }
+
+    // Authorization & Multi-tenant boundary check
+    const authHeader = req.headers.get('Authorization') || req.headers.get('authorization');
+    let callerUser: any = null;
+
+    if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
+      const token = authHeader.substring(7).trim();
+      if (token) {
+        const { data: authData } = await supabase.auth.getUser(token);
+        if (authData?.user) {
+          callerUser = authData.user;
+        }
+      }
+    }
+
+    const isBroadcast = ['OFFER', 'ANNOUNCEMENT', 'TEST', 'CAMPAIGN'].includes(notification_type);
+
+    if (isBroadcast) {
+      if (!callerUser) {
+        return new Response(
+          JSON.stringify({ error: 'Unauthorized: Authentication required for broadcast pushes' }),
+          { status: 401, headers: corsHeaders }
+        );
+      }
+
+      // Verify caller is active staff of this business or superadmin
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('is_superadmin')
+        .eq('id', callerUser.id)
+        .maybeSingle();
+
+      if (!prof?.is_superadmin) {
+        const { data: staffRec } = await supabase
+          .from('staff')
+          .select('id, role')
+          .eq('business_id', business_id)
+          .eq('user_id', callerUser.id)
+          .eq('is_active', true)
+          .maybeSingle();
+
+        if (!staffRec) {
+          return new Response(
+            JSON.stringify({ error: 'Forbidden: You do not have permissions for this business' }),
+            { status: 403, headers: corsHeaders }
+          );
+        }
+      }
+    } else if (notification_type === 'ORDER_STATUS') {
+      // Diner status notification: must have matching order_token or authenticated staff
+      let isAuthorized = false;
+
+      if (callerUser) {
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('is_superadmin')
+          .eq('id', callerUser.id)
+          .maybeSingle();
+
+        if (prof?.is_superadmin) {
+          isAuthorized = true;
+        } else {
+          const { data: staffRec } = await supabase
+            .from('staff')
+            .select('id')
+            .eq('business_id', business_id)
+            .eq('user_id', callerUser.id)
+            .eq('is_active', true)
+            .maybeSingle();
+          if (staffRec) isAuthorized = true;
+        }
+      }
+
+      if (!isAuthorized && order_id && order_token) {
+        const { data: validOrder } = await supabase
+          .from('orders')
+          .select('id')
+          .eq('id', order_id)
+          .eq('order_token', order_token)
+          .eq('business_id', business_id)
+          .maybeSingle();
+
+        if (validOrder) {
+          isAuthorized = true;
+        }
+      }
+
+      if (!isAuthorized && !callerUser) {
+        // If neither staff nor order_token provided, reject to prevent cross-tenant push spam
+        return new Response(
+          JSON.stringify({ error: 'Unauthorized: Valid order_token required to dispatch status push' }),
+          { status: 401, headers: corsHeaders }
+        );
+      }
     }
 
     // 1. If order_id is present but customer_id is missing, look up customer_id from order
@@ -66,7 +171,7 @@ Deno.serve(async (req: Request) => {
       } catch {}
     }
 
-    // 2. Fetch active push subscriptions for this tenant / diner / order
+    // 2. Fetch active push subscriptions strictly isolated to this business_id
     let query = supabase
       .from('push_subscriptions')
       .select('*')
@@ -87,7 +192,7 @@ Deno.serve(async (req: Request) => {
       throw subError;
     }
 
-    // If it's a TEST notification and no specific target matched, fallback to the latest active subscription for the business
+    // If it's a TEST notification and no specific target matched, fallback to latest active subscription
     if (notification_type === 'TEST' && (!subscriptions || subscriptions.length === 0)) {
       const { data: fallbackSubs } = await supabase
         .from('push_subscriptions')
@@ -121,7 +226,6 @@ Deno.serve(async (req: Request) => {
     const seenEndpoints = new Set<string>();
 
     for (const sub of (subscriptions || [])) {
-      // Duplicate prevention per batch
       if (seenEndpoints.has(sub.endpoint)) continue;
       seenEndpoints.add(sub.endpoint);
 
@@ -136,7 +240,6 @@ Deno.serve(async (req: Request) => {
       let sent = false;
       let lastErr: any = null;
 
-      // Retry mechanism (up to 2 attempts with backoff)
       for (let attempt = 1; attempt <= 2; attempt++) {
         try {
           await webPush.sendNotification(pushConfig, payloadString, {
@@ -147,7 +250,6 @@ Deno.serve(async (req: Request) => {
           break;
         } catch (err: any) {
           lastErr = err;
-          // HTTP 404 or 410 indicates endpoint expired / unsubscribed by user
           if (err.statusCode === 404 || err.statusCode === 410) {
             expiredSubIds.push(sub.id);
             break;
@@ -170,7 +272,6 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // 2. Automatically clean up expired or unsubscribed endpoints
     if (expiredSubIds.length > 0) {
       await supabase
         .from('push_subscriptions')
@@ -178,7 +279,7 @@ Deno.serve(async (req: Request) => {
         .in('id', expiredSubIds);
     }
 
-    // 3. Log delivery metrics for restaurant dashboard
+    // Log metrics
     const logStatus = failureCount === 0 ? 'SENT' : (successCount > 0 ? 'PARTIAL' : 'FAILED');
     await supabase.from('push_notification_logs').insert({
       business_id,
